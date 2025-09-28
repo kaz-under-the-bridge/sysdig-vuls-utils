@@ -102,7 +102,18 @@ func NewClient(baseURL, apiToken string) *Client {
 func (c *Client) makeRequest(method, endpoint string, body interface{}) (*http.Response, error) {
 	// Use correct API base URL - api.us2.sysdig.com instead of us2.app.sysdig.com
 	apiURL := strings.Replace(c.baseURL, "us2.app.sysdig.com", "api.us2.sysdig.com", 1)
-	url := fmt.Sprintf("%s/secure/vulnerability/v1%s", apiURL, endpoint)
+	// For localhost (mock server), don't change the URL
+	if strings.Contains(c.baseURL, "localhost") {
+		apiURL = c.baseURL
+	}
+
+	// Handle accepted-risks endpoint differently (uses v1beta1)
+	var url string
+	if strings.Contains(endpoint, "accepted-risks") {
+		url = fmt.Sprintf("%s/secure/vulnerability/v1beta1%s", apiURL, endpoint)
+	} else {
+		url = fmt.Sprintf("%s/secure/vulnerability/v1%s", apiURL, endpoint)
+	}
 
 	var reqBody io.Reader
 	if body != nil {
@@ -120,7 +131,7 @@ func (c *Client) makeRequest(method, endpoint string, body interface{}) (*http.R
 
 	// Set headers
 	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json;charset=UTF-8")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "sysdig-vuls-utils/2.0.0")
 
@@ -336,25 +347,117 @@ func joinParams(params []string) string {
 	return result
 }
 
-// SysdigScanResult represents a scan result from Sysdig API
-type SysdigScanResult struct {
-	CreatedAt               string                            `json:"createdAt"`
-	ImageID                 string                            `json:"imageId"`
-	PolicyEvaluationResult  string                            `json:"policyEvaluationResult"`
-	PullString              string                            `json:"pullString"`
-	ResultID                string                            `json:"resultId"`
-	VulnTotalBySeverity     map[string]int                    `json:"vulnTotalBySeverity"`
-	Scope                   map[string]interface{}            `json:"scope,omitempty"` // For runtime results
+// ScanResultsResponse represents the scan results API response
+type ScanResultsResponse struct {
+	Data []ScanResult `json:"data"`
 }
 
-// SysdigScanResponse represents the API response for scan results
-type SysdigScanResponse struct {
-	Data []SysdigScanResult `json:"data"`
+// ScanResult represents a single scan result entry
+type ScanResult struct {
+	ResultID             string                 `json:"resultId"`
+	CreatedAt            string                 `json:"createdAt"`
+	PullString           string                 `json:"pullString,omitempty"`
+	Scope                map[string]interface{} `json:"scope,omitempty"`
+	VulnTotalBySeverity  VulnSeverityCount     `json:"vulnTotalBySeverity"`
 }
 
-// ListPipelineResults retrieves pipeline scan results
-func (c *Client) ListPipelineResults() ([]SysdigScanResult, error) {
-	resp, err := c.makeRequest("GET", "/pipeline-results", nil)
+// VulnSeverityCount represents vulnerability counts by severity
+type VulnSeverityCount struct {
+	Critical int `json:"critical"`
+	High     int `json:"high"`
+	Medium   int `json:"medium"`
+	Low      int `json:"low"`
+}
+
+// DetailedScanResponse represents the detailed scan result response
+type DetailedScanResponse struct {
+	Metadata        ScanMetadata           `json:"metadata"`
+	Vulnerabilities map[string]VulnDetail  `json:"vulnerabilities"`
+	Packages        map[string]PackageInfo `json:"packages"`
+	RiskAccepts     map[string]interface{} `json:"riskAccepts"`
+}
+
+// DetailedScanResponseV1Beta1 represents the v1beta1 detailed scan result response with enhanced fields
+type DetailedScanResponseV1Beta1 struct {
+	Metadata                     ScanMetadata            `json:"metadata"`
+	Vulnerabilities             map[string]VulnDetailV1Beta1 `json:"vulnerabilities"`
+	Packages                    map[string]PackageInfo  `json:"packages"`
+	RiskAccepts                 map[string]interface{}  `json:"riskAccepts"`
+	VulnTotalBySeverity         VulnSeverityCount       `json:"vulnTotalBySeverity"`
+	FixableVulnTotalBySeverity  VulnSeverityCount       `json:"fixableVulnTotalBySeverity"`
+	ExploitableVulnTotalBySeverity VulnSeverityCount    `json:"exploitableVulnTotalBySeverity,omitempty"`
+}
+
+// ScanMetadata contains scan metadata
+type ScanMetadata struct {
+	PullString string `json:"pullString,omitempty"`
+}
+
+// VulnDetail represents detailed vulnerability information
+type VulnDetail struct {
+	Name           string `json:"name"`
+	Severity       string `json:"severity"`
+	DisclosureDate string `json:"disclosureDate"`
+	PackageRef     string `json:"packageRef"`
+	Fixable        bool   `json:"fixable,omitempty"`
+	Exploitable    bool   `json:"exploitable,omitempty"`
+	FixedVersion   string `json:"fixedVersion,omitempty"`
+}
+
+// VulnDetailV1Beta1 represents detailed vulnerability information from v1beta1 endpoint
+type VulnDetailV1Beta1 struct {
+	Name           string `json:"name"`
+	Severity       string `json:"severity"`
+	DisclosureDate string `json:"disclosureDate"`
+	PackageRef     string `json:"packageRef"`
+	Fixable        bool   `json:"fixable,omitempty"`
+	Exploitable    bool   `json:"exploitable,omitempty"`
+	FixedVersion   string `json:"fixedVersion,omitempty"`
+	// Additional fields that might be in v1beta1
+	CVSS           float64 `json:"cvss,omitempty"`
+	Description    string  `json:"description,omitempty"`
+}
+
+// PackageInfo represents package information
+type PackageInfo struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// AcceptedRisksResponse represents the accepted risks API response
+type AcceptedRisksResponse struct {
+	Data []AcceptedRisk `json:"data"`
+	Page PageInfo       `json:"page"`
+}
+
+// AcceptedRisk represents an accepted risk entry
+type AcceptedRisk struct {
+	EntityValue    string `json:"entityValue"`
+	ExpirationDate string `json:"expirationDate"`
+	Description    string `json:"description"`
+}
+
+// PageInfo represents pagination information
+type PageInfo struct {
+	Next string `json:"next,omitempty"`
+}
+
+// ListPipelineResults retrieves all pipeline scan results
+func (c *Client) ListPipelineResults() ([]ScanResult, error) {
+	return c.ListPipelineResultsWithDays(7) // デフォルト7日
+}
+
+// ListPipelineResultsWithDays retrieves pipeline scan results for specified days
+func (c *Client) ListPipelineResultsWithDays(days int) ([]ScanResult, error) {
+	// Calculate date range
+	endTime := time.Now()
+	startTime := endTime.AddDate(0, 0, -days)
+
+	endpoint := fmt.Sprintf("/pipeline-results?from=%s&to=%s",
+		startTime.Format("2006-01-02T15:04:05Z"),
+		endTime.Format("2006-01-02T15:04:05Z"))
+
+	resp, err := c.makeRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -365,7 +468,7 @@ func (c *Client) ListPipelineResults() ([]SysdigScanResult, error) {
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var scanResp SysdigScanResponse
+	var scanResp ScanResultsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&scanResp); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
@@ -373,9 +476,22 @@ func (c *Client) ListPipelineResults() ([]SysdigScanResult, error) {
 	return scanResp.Data, nil
 }
 
-// ListRuntimeResults retrieves runtime scan results
-func (c *Client) ListRuntimeResults() ([]SysdigScanResult, error) {
-	resp, err := c.makeRequest("GET", "/runtime-results", nil)
+// ListRuntimeResults retrieves all runtime scan results
+func (c *Client) ListRuntimeResults() ([]ScanResult, error) {
+	return c.ListRuntimeResultsWithDays(7) // デフォルト7日
+}
+
+// ListRuntimeResultsWithDays retrieves runtime scan results for specified days
+func (c *Client) ListRuntimeResultsWithDays(days int) ([]ScanResult, error) {
+	// Calculate date range
+	endTime := time.Now()
+	startTime := endTime.AddDate(0, 0, -days)
+
+	endpoint := fmt.Sprintf("/runtime-results?from=%s&to=%s",
+		startTime.Format("2006-01-02T15:04:05Z"),
+		endTime.Format("2006-01-02T15:04:05Z"))
+
+	resp, err := c.makeRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +502,7 @@ func (c *Client) ListRuntimeResults() ([]SysdigScanResult, error) {
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var scanResp SysdigScanResponse
+	var scanResp ScanResultsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&scanResp); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
@@ -395,7 +511,7 @@ func (c *Client) ListRuntimeResults() ([]SysdigScanResult, error) {
 }
 
 // GetScanResultDetails retrieves detailed vulnerability information for a specific scan result
-func (c *Client) GetScanResultDetails(resultID string) (*VulnerabilityResponse, error) {
+func (c *Client) GetScanResultDetails(resultID string) (*DetailedScanResponse, error) {
 	endpoint := fmt.Sprintf("/results/%s", resultID)
 	resp, err := c.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -412,10 +528,121 @@ func (c *Client) GetScanResultDetails(resultID string) (*VulnerabilityResponse, 
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var vulnResp VulnerabilityResponse
-	if err := json.NewDecoder(resp.Body).Decode(&vulnResp); err != nil {
+	var detailResp DetailedScanResponse
+	if err := json.NewDecoder(resp.Body).Decode(&detailResp); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return &vulnResp, nil
+	return &detailResp, nil
+}
+
+// GetScanResultDetailsV1Beta1 retrieves detailed vulnerability information using v1beta1 endpoint with enhanced fields
+func (c *Client) GetScanResultDetailsV1Beta1(resultID string) (*DetailedScanResponseV1Beta1, error) {
+	// Use v1beta1 endpoint directly
+	apiURL := strings.Replace(c.baseURL, "us2.app.sysdig.com", "api.us2.sysdig.com", 1)
+	if strings.Contains(c.baseURL, "localhost") {
+		apiURL = c.baseURL
+	}
+
+	endpoint := fmt.Sprintf("/results/%s", resultID)
+	url := fmt.Sprintf("%s/secure/vulnerability/v1beta1%s", apiURL, endpoint)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	req.Header.Set("Content-Type", "application/json;charset=UTF-8")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "sysdig-vuls-utils/2.0.0")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("scan result not found: %s", resultID)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var detailResp DetailedScanResponseV1Beta1
+	if err := json.NewDecoder(resp.Body).Decode(&detailResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &detailResp, nil
+}
+
+// ListAcceptedRisks retrieves all accepted risks with pagination
+func (c *Client) ListAcceptedRisks() ([]AcceptedRisk, error) {
+	allRisks := []AcceptedRisk{}
+	cursor := ""
+
+	for {
+		endpoint := "/accepted-risks?limit=200"
+		if cursor != "" {
+			endpoint += fmt.Sprintf("&cursor=%s", cursor)
+		}
+
+		resp, err := c.makeRequest("GET", endpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var acceptedResp AcceptedRisksResponse
+		if err := json.NewDecoder(resp.Body).Decode(&acceptedResp); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+
+		allRisks = append(allRisks, acceptedResp.Data...)
+
+		// Check if there's a next page
+		if acceptedResp.Page.Next == "" {
+			break
+		}
+		cursor = acceptedResp.Page.Next
+	}
+
+	return allRisks, nil
+}
+
+// CreateAcceptedRisk creates a new accepted risk
+func (c *Client) CreateAcceptedRisk(entityValue string, expirationDays int, description string) error {
+	expirationDate := time.Now().AddDate(0, 0, expirationDays).Format("2006-01-02")
+
+	body := map[string]interface{}{
+		"context":        []interface{}{},
+		"entityType":     "vulnerability",
+		"entityValue":    entityValue,
+		"expirationDate": expirationDate,
+		"description":    description,
+		"reason":         "RiskOwned",
+	}
+
+	resp, err := c.makeRequest("POST", "/accepted-risks", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to create accepted risk: status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
 }
