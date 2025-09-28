@@ -37,3 +37,16 @@ bin/
 # .vscode/
 
 task.md
+python-examples
+
+# Data files
+data/*.csv
+data/*.db
+*.db
+*.csv
+
+# Temporary test files
+test_*.db
+v2_*.db
+production_*.db
+test_exploitable_*.db

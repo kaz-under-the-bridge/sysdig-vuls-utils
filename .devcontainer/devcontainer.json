@@ -1,26 +1,28 @@
 {
   "name": "Sysdig Vuls Utils Dev Container",
   "dockerFile": "Dockerfile",
-
   // コンテナ作成時の設定
   "build": {
     "dockerfile": "Dockerfile",
     "context": "..",
     "args": {}
   },
-
-  // コンテナ実行時の設定
+  // コンテナ実行時の設定（.envファイルから環境変数を読み込み）
   "runArgs": [
     "--cap-add=SYS_PTRACE",
-    "--security-opt", "seccomp=unconfined"
+    "--security-opt",
+    "seccomp=unconfined",
+    "--env-file",
+    ".devcontainer/.env"
   ],
-
   // マウント設定
   "mounts": [
     "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
-    "source=go-modules,target=/go/pkg/mod,type=volume"
+    "source=go-modules,target=/go/pkg/mod,type=volume",
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,consistency=cached"
   ],
-
   // 環境変数
   "remoteEnv": {
     "GOPATH": "/go",
@@ -29,7 +31,6 @@
     "GO111MODULE": "on",
     "GOPROXY": "https://proxy.golang.org,direct"
   },
-
   // VS Code拡張機能
   "customizations": {
     "vscode": {
@@ -92,19 +93,14 @@
       }
     }
   },
-
   // コンテナ作成後に実行するコマンド
-  "postCreateCommand": "go mod download && make deps",
-
+  "postCreateCommand": "go mod download && make deps && gh --version && node --version && npm --version && (claude --version || echo 'Claude Code CLI not available')",
   // 開始時のコマンド
   "postStartCommand": "git config --global --add safe.directory /workspace",
-
   // リモートユーザー
   "remoteUser": "vscode",
-
   // ワークスペースフォルダ
   "workspaceFolder": "/workspace",
-
   // フォワードするポート
   "forwardPorts": []
 }
