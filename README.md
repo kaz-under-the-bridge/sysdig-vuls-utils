@@ -6,13 +6,30 @@ SysdigのクラウドベースRCE（ランタイムコンテナセキュリテ�
 
 ## 機能
 
+### 基本機能
 - **脆弱性一覧の取得**: Sysdig環境内のすべての脆弱性を取得
 - **脆弱性詳細の取得**: 特定の脆弱性の詳細情報を取得
 - **脆弱性の更新**: 脆弱性のステータスやメタデータを変更
+
+### 高度なフィルタリング
 - **重要度でフィルタリング**: 重要度レベル（critical、high、medium、low）で脆弱性を検索
+- **修正可能な脆弱性**: fixable=trueの脆弱性のみを表示
+- **エクスプロイト可能**: exploitable=trueの脆弱性のみを表示
 - **パッケージでフィルタリング**: 特定のパッケージに影響する脆弱性を検索
-- **設定管理**: 設定ファイル、環境変数、CLIフラグをサポート
-- **JSON出力**: 他のツールとの統合に適した機械可読な出力形式
+- **複合フィルタ**: 複数の条件を組み合わせた高度な検索
+
+### データ管理
+- **ローカルキャッシュ**: SQLiteまたはCSVによるローカルデータ保存
+- **AWSリソース追跡**: EC2、Lambda、ECS、EKS、ECRの脆弱性を追跡
+- **検出場所の判定**: runtime、container、image repoでの検出を記録
+- **コンテナ情報**: イメージ名、タグ、レジストリ情報を管理
+
+### 出力形式
+- **テーブル形式**: 見やすいテーブル形式での出力
+- **詳細ビュー**: 脆弱性の完全な情報表示
+- **サマリービュー**: 統計情報と概要の表示
+- **AWSリソースビュー**: AWS特化の脆弱性レポート
+- **CSV/SQLite出力**: 分析ツール連携用のデータ出力
 
 ## インストール
 
@@ -20,6 +37,7 @@ SysdigのクラウドベースRCE（ランタイムコンテナセキュリテ�
 
 - Go 1.23以降
 - 有効なSysdig APIトークン
+- SQLite3（キャッシュ機能を使用する場合）
 
 ### Dev Container (VS Code/GitHub Codespaces)
 
@@ -104,13 +122,26 @@ sysdig-vuls [options]
 
 #### オプション
 
+##### 基本オプション
 - `-config string`: 設定ファイルへのパス
 - `-token string`: Sysdig APIトークン（またはSYSDIG_API_TOKEN環境変数を使用）
 - `-url string`: Sysdig APIベースURL（デフォルト: "https://us2.app.sysdig.com"）
-- `-command string`: 実行するコマンド: list, get, update（デフォルト: "list"）
+- `-command string`: 実行するコマンド: list, filter, get, update, summary, cache（デフォルト: "list"）
 - `-id string`: 脆弱性ID（get/updateコマンドで必須）
 - `-help`: ヘルプメッセージを表示
 - `-version`: バージョン情報を表示
+
+##### フィルタオプション
+- `-severity string`: 重要度でフィルタ（critical,high,medium,low）
+- `-fixable`: 修正可能な脆弱性のみ表示
+- `-exploitable`: エクスプロイト可能な脆弱性のみ表示
+
+##### 出力オプション
+- `-output string`: 出力形式: table, detailed, summary, aws（デフォルト: "table"）
+
+##### キャッシュオプション
+- `-cache string`: キャッシュファイルへのパス（デフォルト: "./cache/vulnerabilities.db"）
+- `-cache-type string`: キャッシュタイプ: sqlite, csv（デフォルト: "sqlite"）
 
 ### 使用例
 
@@ -121,11 +152,48 @@ sysdig-vuls [options]
 export SYSDIG_API_TOKEN="your_token_here"
 sysdig-vuls -command list
 
-# コマンドラインフラグを使用
-sysdig-vuls -token "your_token_here" -command list
+# テーブル形式で出力
+sysdig-vuls -token "your_token_here" -command list -output table
 
-# 設定ファイルを使用
-sysdig-vuls -config config.json -command list
+# 詳細形式で出力
+sysdig-vuls -token "your_token_here" -command list -output detailed
+```
+
+#### フィルタを使用した検索
+
+```bash
+# Criticalかつ修正可能な脆弱性のみ表示
+sysdig-vuls -token "your_token_here" -command filter -severity critical -fixable
+
+# HighとCriticalでエクスプロイト可能な脆弱性
+sysdig-vuls -token "your_token_here" -command filter -severity "critical,high" -exploitable
+
+# 修正可能かつエクスプロイト可能な脆弱性（自動的にcritical/highフィルタ）
+sysdig-vuls -token "your_token_here" -command filter -fixable -exploitable
+```
+
+#### 脆弱性サマリーの表示
+
+```bash
+# 脆弱性の統計情報を表示
+sysdig-vuls -token "your_token_here" -command summary
+```
+
+#### ローカルキャッシュへの保存
+
+```bash
+# SQLiteデータベースに保存
+sysdig-vuls -token "your_token_here" -command cache -cache-type sqlite -cache ./data/vulns.db
+
+# CSVファイルに保存（フィルタ付き）
+sysdig-vuls -token "your_token_here" -command cache -cache-type csv -cache ./data/vulns.csv -severity "critical,high" -fixable
+```
+
+#### AWSリソース別の脆弱性表示
+
+```bash
+# AWSリソース形式で脆弱性を表示
+sysdig-vuls -token "your_token_here" -command list -output aws
 ```
 
 #### 特定の脆弱性を取得
@@ -221,11 +289,16 @@ func main() {
 
 ### 利用可能なクライアントメソッド
 
-- `ListVulnerabilities() ([]Vulnerability, error)`
-- `GetVulnerability(vulnID string) (*Vulnerability, error)`
-- `UpdateVulnerability(vulnID string, updates map[string]interface{}) error`
-- `ListVulnerabilitiesByPackage(packageName string) ([]Vulnerability, error)`
-- `ListVulnerabilitiesBySeverity(severity string) ([]Vulnerability, error)`
+#### 基本メソッド
+- `ListVulnerabilities() ([]Vulnerability, error)` - すべての脆弱性を取得
+- `GetVulnerability(vulnID string) (*Vulnerability, error)` - 特定の脆弱性を取得
+- `UpdateVulnerability(vulnID string, updates map[string]interface{}) error` - 脆弱性を更新
+
+#### フィルタメソッド
+- `ListVulnerabilitiesByPackage(packageName string) ([]Vulnerability, error)` - パッケージでフィルタ
+- `ListVulnerabilitiesBySeverity(severity string) ([]Vulnerability, error)` - 重要度でフィルタ
+- `ListVulnerabilitiesWithFilters(filter VulnerabilityFilter) ([]Vulnerability, error)` - 複合フィルタ
+- `ListCriticalAndHighVulnerabilities() ([]Vulnerability, error)` - Critical/High、修正可能、エクスプロイト可能な脆弱性
 
 ## エラー処理
 
@@ -266,6 +339,14 @@ Sysdigは複数のリージョンで運用されています。お使いのリ�
 3. API固有の問題についてはSysdigサポートに連絡
 
 ## 変更履歴
+
+### v2.0.0
+- 高度なフィルタリング機能追加（fixable、exploitable）
+- ローカルキャッシュ機能（SQLite/CSV）
+- AWSリソース追跡機能
+- 検出場所の判定機能（runtime、container、image repo）
+- 複数の出力形式（table、detailed、summary、aws）
+- コンテナ情報管理
 
 ### v1.0.0
 - 初回リリース
