@@ -68,6 +68,74 @@ type ContainerInfo struct {
 	ImageDigest string `json:"imageDigest,omitempty"`
 }
 
+// V2 API structures based on scanning/scanresults/v2 endpoint
+type VulnPackageResponseV2 struct {
+	Page PageInfoV2       `json:"page"`
+	Data []VulnPackageV2  `json:"data"`
+}
+
+type PageInfoV2 struct {
+	Returned int `json:"returned"`
+	Offset   int `json:"offset"`
+	Matched  int `json:"matched"`
+}
+
+type VulnPackageV2 struct {
+	ID             string     `json:"id"`
+	Vuln           VulnV2     `json:"vuln"`
+	Package        PackageV2  `json:"package"`
+	FixedInVersion string     `json:"fixedInVersion,omitempty"`
+}
+
+type VulnV2 struct {
+	Name              string                    `json:"name"`
+	Severity          int                       `json:"severity"` // 1=low, 2=medium, 3=high, 4=critical
+	CvssVersion       string                    `json:"cvssVersion"`
+	CvssScore         float64                   `json:"cvssScore"`
+	EpssScore         *EpssScore                `json:"epssScore,omitempty"`
+	Exploitable       bool                      `json:"exploitable"`
+	CisaKev           bool                      `json:"cisakev"`
+	DisclosureDate    string                    `json:"disclosureDate"`
+	AcceptedRisks     []interface{}             `json:"acceptedRisks"`
+	ProvidersMetadata map[string]ProviderMeta   `json:"providersMetadata"`
+}
+
+type EpssScore struct {
+	Score      float64   `json:"score"`
+	Percentile float64   `json:"percentile"`
+	Timestamp  string    `json:"timestamp"`
+}
+
+type ProviderMeta struct {
+	PublishDate *string      `json:"publishDate,omitempty"`
+	CvssScore   *CvssScore   `json:"cvssScore,omitempty"`
+	Severity    *string      `json:"severity,omitempty"`
+	EpssScore   *EpssScore   `json:"epssScore,omitempty"`
+}
+
+type CvssScore struct {
+	Version string  `json:"version"`
+	Score   float64 `json:"score"`
+	Vector  string  `json:"vector"`
+}
+
+type PackageV2 struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Version string   `json:"version"`
+	Type    string   `json:"type"`
+	Running bool     `json:"running"`
+	Removed bool     `json:"removed"`
+	Layer   *LayerV2 `json:"layer,omitempty"`
+}
+
+type LayerV2 struct {
+	ID      string `json:"id"`
+	Digest  string `json:"digest"`
+	Index   int    `json:"index"`
+	Command string `json:"command"`
+}
+
 // VulnerabilityResponse represents the API response for vulnerability lists
 type VulnerabilityResponse struct {
 	Data       []Vulnerability `json:"data"`
@@ -100,20 +168,29 @@ func NewClient(baseURL, apiToken string) *Client {
 
 // makeRequest performs an HTTP request to the Sysdig API
 func (c *Client) makeRequest(method, endpoint string, body interface{}) (*http.Response, error) {
-	// Use correct API base URL - api.us2.sysdig.com instead of us2.app.sysdig.com
-	apiURL := strings.Replace(c.baseURL, "us2.app.sysdig.com", "api.us2.sysdig.com", 1)
-	// For localhost (mock server), don't change the URL
-	if strings.Contains(c.baseURL, "localhost") {
+	var apiURL string
+	var url string
+
+	// Handle different endpoint types
+	if strings.HasPrefix(endpoint, "/api/") {
+		// For v2 scanning endpoints, keep the original base URL (us2.app.sysdig.com)
 		apiURL = c.baseURL
+		url = fmt.Sprintf("%s%s", apiURL, endpoint)
+	} else {
+		// For v1 endpoints, use api.us2.sysdig.com instead of us2.app.sysdig.com
+		apiURL = strings.Replace(c.baseURL, "us2.app.sysdig.com", "api.us2.sysdig.com", 1)
+		// For localhost (mock server), don't change the URL
+		if strings.Contains(c.baseURL, "localhost") {
+			apiURL = c.baseURL
+		}
+
+		if strings.Contains(endpoint, "accepted-risks") {
+			url = fmt.Sprintf("%s/secure/vulnerability/v1beta1%s", apiURL, endpoint)
+		} else {
+			url = fmt.Sprintf("%s/secure/vulnerability/v1%s", apiURL, endpoint)
+		}
 	}
 
-	// Handle accepted-risks endpoint differently (uses v1beta1)
-	var url string
-	if strings.Contains(endpoint, "accepted-risks") {
-		url = fmt.Sprintf("%s/secure/vulnerability/v1beta1%s", apiURL, endpoint)
-	} else {
-		url = fmt.Sprintf("%s/secure/vulnerability/v1%s", apiURL, endpoint)
-	}
 
 	var reqBody io.Reader
 	if body != nil {
@@ -645,4 +722,85 @@ func (c *Client) CreateAcceptedRisk(entityValue string, expirationDays int, desc
 	}
 
 	return nil
+}
+
+// GetVulnPackagesV2 retrieves vulnerability packages using the v2 scanning API
+func (c *Client) GetVulnPackagesV2(resultID string, limit int, offset int, sortBy string, order string) (*VulnPackageResponseV2, error) {
+	endpoint := fmt.Sprintf("/api/scanning/scanresults/v2/results/%s/vulnPkgs", resultID)
+
+	// Build query parameters
+	params := fmt.Sprintf("?limit=%d&offset=%d", limit, offset)
+	if sortBy != "" {
+		params += fmt.Sprintf("&sort=%s", sortBy)
+	}
+	if order != "" {
+		params += fmt.Sprintf("&order=%s", order)
+	}
+
+	endpoint += params
+
+	resp, err := c.makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var vulnResp VulnPackageResponseV2
+	if err := json.NewDecoder(resp.Body).Decode(&vulnResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &vulnResp, nil
+}
+
+// GetAllVulnPackagesV2 retrieves all vulnerability packages for a scan result with pagination
+func (c *Client) GetAllVulnPackagesV2(resultID string) ([]VulnPackageV2, error) {
+	var allVulnPackages []VulnPackageV2
+	limit := 100
+	offset := 0
+
+	for {
+		resp, err := c.GetVulnPackagesV2(resultID, limit, offset, "vulnSeverity", "desc")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get vulnerability packages at offset %d: %w", offset, err)
+		}
+
+		allVulnPackages = append(allVulnPackages, resp.Data...)
+
+		// Check if we've retrieved all data
+		if len(resp.Data) < limit || offset + len(resp.Data) >= resp.Page.Matched {
+			break
+		}
+
+		offset += limit
+	}
+
+	return allVulnPackages, nil
+}
+
+// Helper function to convert severity int to string
+func (v VulnV2) SeverityString() string {
+	switch v.Severity {
+	case 1:
+		return "low"
+	case 2:
+		return "medium"
+	case 3:
+		return "high"
+	case 4:
+		return "critical"
+	case 5:
+		return "negligible"
+	case 6:
+		return "none"
+	case 7:
+		return "unknown"
+	default:
+		return fmt.Sprintf("severity_%d", v.Severity)
+	}
 }

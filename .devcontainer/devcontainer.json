@@ -18,7 +18,10 @@
   // マウント設定
   "mounts": [
     "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
-    "source=go-modules,target=/go/pkg/mod,type=volume"
+    "source=go-modules,target=/go/pkg/mod,type=volume",
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,consistency=cached"
   ],
   // 環境変数
   "remoteEnv": {
@@ -91,7 +94,7 @@
     }
   },
   // コンテナ作成後に実行するコマンド
-  "postCreateCommand": "go mod download && make deps",
+  "postCreateCommand": "go mod download && make deps && gh --version && node --version && npm --version && (claude --version || echo 'Claude Code CLI not available')",
   // 開始時のコマンド
   "postStartCommand": "git config --global --add safe.directory /workspace",
   // リモートユーザー

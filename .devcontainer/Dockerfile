@@ -20,6 +20,21 @@ RUN go install github.com/cweill/gotests/gotests@latest \
     && go install honnef.co/go/tools/cmd/staticcheck@latest
 
 # GitHub CLIは既にベースイメージに含まれているため、追加インストール不要
+# ただし最新版にアップデート
+RUN (type -p wget >/dev/null || (apt update && apt-get install wget -y)) \
+    && mkdir -p -m 755 /etc/apt/keyrings \
+    && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt update \
+    && apt install gh -y
+
+# Node.jsとnpmのインストール（Claude Code CLIに必要）
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
+    && apt-get install -y nodejs
+
+# Claude Code CLIのインストール
+RUN npm install -g @anthropic-ai/claude-code
 
 # vsodeユーザー用エイリアス設定（Microsoft Dev Containersイメージにはvsocdeユーザーが存在）
 USER vscode
