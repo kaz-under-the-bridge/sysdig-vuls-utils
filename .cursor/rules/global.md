@@ -188,3 +188,20 @@ log.Printf("Response Status: %d", resp.StatusCode)
 - APIトークンをコードにハードコードしない
 - 設定ファイルのパーミッションは600に設定（`config.Save()`で自動設定）
 - APIトークンは環境変数か設定ファイルで管理
+
+## グローバルカスタムコマンド
+
+### Git操作コマンド（~/.claude/commands）
+```bash
+# mainブランチと同期（最新をプル）
+/git:sync
+
+# PR作成ワークフロー（コミット→ブランチ作成→プッシュ→PR作成）
+/git:pr "PRのタイトル"
+
+# 他のGitコマンドも利用可能
+/git:push-head  # 現在のHEADをリモートにプッシュ
+/git:rebase     # コミット履歴をリベース
+```
+
+これらのコマンドは`~/.claude/commands/`にグローバル定義されており、すべてのプロジェクトで利用可能。
