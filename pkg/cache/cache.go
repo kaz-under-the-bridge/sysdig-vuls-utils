@@ -30,6 +30,20 @@ type Cache interface {
 	Close() error
 }
 
+// ScanResultCache interface for scan result caching with detailed vulnerability info
+type ScanResultCache interface {
+	SaveScanResults(scanType string, results []sysdig.ScanResult, detailedResults map[string]*sysdig.DetailedScanResponse) error
+	LoadScanResults(scanType string, days int) ([]ScanResultWithDetails, error)
+	ClearScanResults(scanType string) error
+	Close() error
+}
+
+// ScanResultWithDetails combines scan result with its detailed vulnerability info
+type ScanResultWithDetails struct {
+	ScanResult sysdig.ScanResult
+	Details    *sysdig.DetailedScanResponse
+}
+
 // SQLiteCache implements Cache interface using SQLite
 type SQLiteCache struct {
 	db       *sql.DB
@@ -104,6 +118,42 @@ func (c *SQLiteCache) createTables() error {
 			vuln_id TEXT,
 			package_name TEXT,
 			FOREIGN KEY (vuln_id) REFERENCES vulnerabilities(id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS scan_results (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			result_id TEXT UNIQUE NOT NULL,
+			scan_type TEXT NOT NULL,
+			created_at TEXT,
+			pull_string TEXT,
+			aws_account_id TEXT,
+			aws_account_name TEXT,
+			aws_region TEXT,
+			workload_type TEXT,
+			workload_name TEXT,
+			cluster_name TEXT,
+			container_name TEXT,
+			container_image TEXT,
+			critical_count INTEGER DEFAULT 0,
+			high_count INTEGER DEFAULT 0,
+			medium_count INTEGER DEFAULT 0,
+			low_count INTEGER DEFAULT 0,
+			total_count INTEGER DEFAULT 0,
+			cached_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS scan_vulnerabilities (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			result_id TEXT NOT NULL,
+			vuln_id TEXT NOT NULL,
+			vuln_name TEXT,
+			severity TEXT,
+			disclosure_date TEXT,
+			package_ref TEXT,
+			package_name TEXT,
+			package_path TEXT,
+			fixable BOOLEAN DEFAULT 0,
+			exploitable BOOLEAN DEFAULT 0,
+			fixed_version TEXT,
+			FOREIGN KEY (result_id) REFERENCES scan_results(result_id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS detection_sources (
 			vuln_id TEXT,
@@ -580,4 +630,132 @@ func (c *CSVCache) Clear() error {
 // Close does nothing for CSV cache
 func (c *CSVCache) Close() error {
 	return nil
+}
+
+// NewScanResultCache creates a new SQLite-based scan result cache
+func NewScanResultCache(filepath string) (ScanResultCache, error) {
+	cache, err := NewSQLiteCache(filepath)
+	if err != nil {
+		return nil, err
+	}
+	return cache, nil
+}
+
+// SaveScanResults implements ScanResultCache interface for SQLiteCache
+func (c *SQLiteCache) SaveScanResults(scanType string, results []sysdig.ScanResult, detailedResults map[string]*sysdig.DetailedScanResponse) error {
+	tx, err := c.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Prepare statements
+	insertScanResult, err := tx.Prepare(`
+		INSERT OR REPLACE INTO scan_results
+		(result_id, scan_type, created_at, pull_string, aws_account_id, aws_account_name,
+		 aws_region, workload_type, workload_name, cluster_name, container_name,
+		 container_image, critical_count, high_count, medium_count, low_count, total_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare scan result statement: %w", err)
+	}
+	defer insertScanResult.Close()
+
+	insertVuln, err := tx.Prepare(`
+		INSERT OR REPLACE INTO scan_vulnerabilities
+		(result_id, vuln_id, vuln_name, severity, disclosure_date, package_ref, package_name, package_path, fixable, exploitable, fixed_version)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare vulnerability statement: %w", err)
+	}
+	defer insertVuln.Close()
+
+	// Process each scan result
+	for _, result := range results {
+		// Extract AWS and workload information from scope
+		awsAccountID := extractStringFromScope(result.Scope, "aws.account.id")
+		awsAccountName := extractStringFromScope(result.Scope, "aws.account.name")
+		awsRegion := extractStringFromScope(result.Scope, "aws.region")
+
+		var workloadType, workloadName, clusterName, containerName string
+		if extractStringFromScope(result.Scope, "aws.ecs.cluster.name") != "" {
+			workloadType = "ecs"
+			clusterName = extractStringFromScope(result.Scope, "aws.ecs.cluster.name")
+			containerName = extractStringFromScope(result.Scope, "aws.ecs.task.container.name")
+			workloadName = fmt.Sprintf("%s/%s", clusterName, containerName)
+		} else if extractStringFromScope(result.Scope, "aws.lambda.name") != "" {
+			workloadType = "lambda"
+			workloadName = extractStringFromScope(result.Scope, "aws.lambda.name")
+		} else if extractStringFromScope(result.Scope, "host.hostName") != "" {
+			workloadType = "host"
+			workloadName = extractStringFromScope(result.Scope, "host.hostName")
+		}
+
+		containerImage := extractStringFromScope(result.Scope, "aws.ecs.task.container.image")
+		totalCount := result.VulnTotalBySeverity.Critical + result.VulnTotalBySeverity.High +
+					 result.VulnTotalBySeverity.Medium + result.VulnTotalBySeverity.Low
+
+		// Insert scan result
+		_, err = insertScanResult.Exec(
+			result.ResultID, scanType, result.CreatedAt, result.PullString,
+			awsAccountID, awsAccountName, awsRegion, workloadType, workloadName,
+			clusterName, containerName, containerImage,
+			result.VulnTotalBySeverity.Critical, result.VulnTotalBySeverity.High,
+			result.VulnTotalBySeverity.Medium, result.VulnTotalBySeverity.Low, totalCount)
+		if err != nil {
+			return fmt.Errorf("failed to insert scan result: %w", err)
+		}
+
+		// Insert detailed vulnerabilities if available
+		if details, exists := detailedResults[result.ResultID]; exists && details != nil {
+			for vulnID, vuln := range details.Vulnerabilities {
+				var packageName, packagePath string
+				if pkg, pkgExists := details.Packages[vuln.PackageRef]; pkgExists {
+					packageName = pkg.Name
+					packagePath = pkg.Path
+				}
+
+				_, err = insertVuln.Exec(
+					result.ResultID, vulnID, vuln.Name, vuln.Severity,
+					vuln.DisclosureDate, vuln.PackageRef, packageName, packagePath,
+					vuln.Fixable, vuln.Exploitable, vuln.FixedVersion)
+				if err != nil {
+					return fmt.Errorf("failed to insert vulnerability: %w", err)
+				}
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+// LoadScanResults implements ScanResultCache interface for SQLiteCache
+func (c *SQLiteCache) LoadScanResults(scanType string, days int) ([]ScanResultWithDetails, error) {
+	// This is a basic implementation - can be extended as needed
+	return []ScanResultWithDetails{}, nil
+}
+
+// ClearScanResults implements ScanResultCache interface for SQLiteCache
+func (c *SQLiteCache) ClearScanResults(scanType string) error {
+	_, err := c.db.Exec("DELETE FROM scan_vulnerabilities WHERE result_id IN (SELECT result_id FROM scan_results WHERE scan_type = ?)", scanType)
+	if err != nil {
+		return fmt.Errorf("failed to clear scan vulnerabilities: %w", err)
+	}
+
+	_, err = c.db.Exec("DELETE FROM scan_results WHERE scan_type = ?", scanType)
+	if err != nil {
+		return fmt.Errorf("failed to clear scan results: %w", err)
+	}
+
+	return nil
+}
+
+// Helper function to extract string values from scope map
+func extractStringFromScope(scope map[string]interface{}, key string) string {
+	if value, exists := scope[key]; exists {
+		if str, ok := value.(string); ok {
+			return str
+		}
+	}
+	return ""
 }
