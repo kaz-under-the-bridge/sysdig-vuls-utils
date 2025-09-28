@@ -1,0 +1,110 @@
+{
+  "name": "Sysdig Vuls Utils Dev Container",
+  "dockerFile": "Dockerfile",
+
+  // コンテナ作成時の設定
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "..",
+    "args": {}
+  },
+
+  // コンテナ実行時の設定
+  "runArgs": [
+    "--cap-add=SYS_PTRACE",
+    "--security-opt", "seccomp=unconfined"
+  ],
+
+  // マウント設定
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+    "source=go-modules,target=/go/pkg/mod,type=volume"
+  ],
+
+  // 環境変数
+  "remoteEnv": {
+    "GOPATH": "/go",
+    "GOBIN": "/go/bin",
+    "PATH": "${containerEnv:PATH}:/go/bin",
+    "GO111MODULE": "on",
+    "GOPROXY": "https://proxy.golang.org,direct"
+  },
+
+  // VS Code拡張機能
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "ms-azuretools.vscode-docker",
+        "eamodio.gitlens",
+        "donjayamanne.githistory",
+        "streetsidesoftware.code-spell-checker",
+        "yzhang.markdown-all-in-one",
+        "redhat.vscode-yaml",
+        "ms-vscode.makefile-tools",
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "wayou.vscode-todo-highlight",
+        "gruntfuggly.todo-tree"
+      ],
+      "settings": {
+        "go.toolsManagement.checkForUpdates": "local",
+        "go.useLanguageServer": true,
+        "go.lintTool": "golangci-lint",
+        "go.lintOnSave": "workspace",
+        "go.formatTool": "goimports",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": "explicit"
+        },
+        "[go]": {
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          },
+          "editor.snippetSuggestions": "none"
+        },
+        "[go.mod]": {
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        },
+        "gopls": {
+          "usePlaceholders": true,
+          "staticcheck": true
+        },
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.profiles.linux": {
+          "bash": {
+            "path": "/bin/bash"
+          }
+        },
+        "files.exclude": {
+          "**/bin": true,
+          "**/.git": true,
+          "**/vendor": false
+        },
+        "files.watcherExclude": {
+          "**/bin": true,
+          "**/vendor": true
+        }
+      }
+    }
+  },
+
+  // コンテナ作成後に実行するコマンド
+  "postCreateCommand": "go mod download && make deps",
+
+  // 開始時のコマンド
+  "postStartCommand": "git config --global --add safe.directory /workspace",
+
+  // リモートユーザー
+  "remoteUser": "vscode",
+
+  // ワークスペースフォルダ
+  "workspaceFolder": "/workspace",
+
+  // フォワードするポート
+  "forwardPorts": []
+}

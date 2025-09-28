@@ -1,27 +1,51 @@
 # sysdig-vuls-utils
 
-**Sysdig Vulnerability API Tool-set**
+**Sysdig脆弱性管理APIツールセット**
 
-A Golang-based command-line tool and library for interacting with Sysdig's vulnerability management API. This tool allows you to list, retrieve, and manage vulnerabilities in your Sysdig Cloud environment.
+SysdigのクラウドベースRCE（ランタイムコンテナセキュリティ）が検出した脆弱性を管理するためのGolang製コマンドラインツール＆ライブラリです。Sysdig Cloud環境における脆弱性の一覧取得、詳細情報の取得、ステータス更新などが可能です。
 
-## Features
+## 機能
 
-- **List Vulnerabilities**: Retrieve all vulnerabilities from your Sysdig environment
-- **Get Vulnerability Details**: Fetch detailed information about specific vulnerabilities
-- **Update Vulnerabilities**: Modify vulnerability status and metadata
-- **Filter by Severity**: Query vulnerabilities by severity level (critical, high, medium, low)
-- **Filter by Package**: Find vulnerabilities affecting specific packages
-- **Configuration Management**: Support for config files, environment variables, and CLI flags
-- **JSON Output**: Machine-readable output for integration with other tools
+- **脆弱性一覧の取得**: Sysdig環境内のすべての脆弱性を取得
+- **脆弱性詳細の取得**: 特定の脆弱性の詳細情報を取得
+- **脆弱性の更新**: 脆弱性のステータスやメタデータを変更
+- **重要度でフィルタリング**: 重要度レベル（critical、high、medium、low）で脆弱性を検索
+- **パッケージでフィルタリング**: 特定のパッケージに影響する脆弱性を検索
+- **設定管理**: 設定ファイル、環境変数、CLIフラグをサポート
+- **JSON出力**: 他のツールとの統合に適した機械可読な出力形式
 
-## Installation
+## インストール
 
-### Prerequisites
+### 前提条件
 
-- Go 1.19 or later
-- Valid Sysdig API token
+- Go 1.23以降
+- 有効なSysdig APIトークン
 
-### Build from Source
+### Dev Container (VS Code/GitHub Codespaces)
+
+このプロジェクトはDev Containerをサポートしています。VS CodeやGitHub Codespacesで簡単に開発環境を構築できます。
+
+#### VS Codeで使用する場合
+
+1. Docker DesktopとVS Code Dev Containers拡張をインストール
+2. プロジェクトをVS Codeで開く
+3. コマンドパレット（F1）から「Dev Containers: Reopen in Container」を選択
+4. 自動的に開発環境が構築されます
+
+#### GitHub Codespacesで使用する場合
+
+1. GitHubリポジトリページで「Code」→「Codespaces」→「Create codespace on main」をクリック
+2. 自動的にクラウド上に開発環境が構築されます
+
+#### Dev Container環境の特徴
+
+- Go 1.23開発環境（Microsoft Dev Containersベース）
+- golangci-lint、dlv、goplsなどの開発ツール事前インストール済み
+- VS Code Go拡張機能自動セットアップ
+- GitHub CLI統合
+- Dockerサポート（Docker-in-Docker）
+
+### ソースからビルド
 
 ```bash
 git clone https://github.com/kaz-under-the-bridge/sysdig-vuls-utils.git
@@ -29,39 +53,39 @@ cd sysdig-vuls-utils
 go build -o sysdig-vuls cmd/sysdig-vuls/main.go
 ```
 
-### Install with Go
+### Goでインストール
 
 ```bash
 go install github.com/kaz-under-the-bridge/sysdig-vuls-utils/cmd/sysdig-vuls@latest
 ```
 
-## Configuration
+## 設定
 
-### API Token
+### APIトークン
 
-You need a valid Sysdig API token to use this tool. You can obtain one from:
+このツールを使用するには有効なSysdig APIトークンが必要です。以下から取得できます：
 - **Sysdig US2**: https://us2.app.sysdig.com/secure/settings/user
 - **Sysdig EU**: https://eu1.app.sysdig.com/secure/settings/user
 
-### Configuration Options
+### 設定オプション
 
-The tool supports multiple ways to configure the API token and endpoint:
+ツールは以下の複数の方法でAPIトークンとエンドポイントを設定できます：
 
-1. **Command Line Flags** (highest priority)
-2. **Configuration File** (JSON format)
-3. **Environment Variables**
-4. **Default Values** (lowest priority)
+1. **コマンドラインフラグ** （最優先）
+2. **設定ファイル** （JSON形式）
+3. **環境変数**
+4. **デフォルト値** （最低優先度）
 
-#### Environment Variables
+#### 環境変数
 
 ```bash
 export SYSDIG_API_TOKEN="your_api_token_here"
 export SYSDIG_API_URL="https://us2.app.sysdig.com"  # Optional, defaults to US2
 ```
 
-#### Configuration File
+#### 設定ファイル
 
-Create a JSON configuration file (see `examples/config.json`):
+JSON形式の設定ファイルを作成します（`examples/config.json`を参照）：
 
 ```json
 {
@@ -70,72 +94,72 @@ Create a JSON configuration file (see `examples/config.json`):
 }
 ```
 
-## Usage
+## 使用方法
 
-### Command Line Interface
+### コマンドラインインターフェース
 
 ```bash
 sysdig-vuls [options]
 ```
 
-#### Options
+#### オプション
 
-- `-config string`: Path to configuration file
-- `-token string`: Sysdig API token (or use SYSDIG_API_TOKEN environment variable)
-- `-url string`: Sysdig API base URL (default: "https://us2.app.sysdig.com")
-- `-command string`: Command to execute: list, get, update (default: "list")
-- `-id string`: Vulnerability ID (required for get/update commands)
-- `-help`: Show help message
-- `-version`: Show version information
+- `-config string`: 設定ファイルへのパス
+- `-token string`: Sysdig APIトークン（またはSYSDIG_API_TOKEN環境変数を使用）
+- `-url string`: Sysdig APIベースURL（デフォルト: "https://us2.app.sysdig.com"）
+- `-command string`: 実行するコマンド: list, get, update（デフォルト: "list"）
+- `-id string`: 脆弱性ID（get/updateコマンドで必須）
+- `-help`: ヘルプメッセージを表示
+- `-version`: バージョン情報を表示
 
-### Examples
+### 使用例
 
-#### List All Vulnerabilities
+#### すべての脆弱性を一覧表示
 
 ```bash
-# Using environment variable
+# 環境変数を使用
 export SYSDIG_API_TOKEN="your_token_here"
 sysdig-vuls -command list
 
-# Using command line flag
+# コマンドラインフラグを使用
 sysdig-vuls -token "your_token_here" -command list
 
-# Using config file
+# 設定ファイルを使用
 sysdig-vuls -config config.json -command list
 ```
 
-#### Get Specific Vulnerability
+#### 特定の脆弱性を取得
 
 ```bash
 sysdig-vuls -token "your_token_here" -command get -id CVE-2023-1234
 ```
 
-#### Update Vulnerability Status
+#### 脆弱性ステータスの更新
 
 ```bash
 sysdig-vuls -token "your_token_here" -command update -id CVE-2023-1234
 ```
 
-## API Documentation
+## APIドキュメント
 
-This tool is based on the Sysdig Secure API. For detailed API documentation, refer to:
+このツールはSysdig Secure APIをベースにしています。詳細なAPIドキュメントは以下を参照してください：
 
-- **Sysdig API Documentation**: https://us2.app.sysdig.com/apidocs/secure?_product=SDS
+- **Sysdig APIドキュメント**: https://us2.app.sysdig.com/apidocs/secure?_product=SDS
 - **Swagger UI**: https://us2.app.sysdig.com/secure/swagger.html
 
-### Supported API Endpoints
+### サポートされているAPIエンドポイント
 
-The tool currently supports the following Sysdig API endpoints:
+ツールは現在、以下のSysdig APIエンドポイントをサポートしています：
 
-#### Vulnerabilities
+#### 脆弱性
 
-- `GET /api/secure/v1/vulnerabilities` - List all vulnerabilities
-- `GET /api/secure/v1/vulnerabilities/{id}` - Get specific vulnerability
-- `PATCH /api/secure/v1/vulnerabilities/{id}` - Update vulnerability
-- `GET /api/secure/v1/vulnerabilities?severity={level}` - Filter by severity
-- `GET /api/secure/v1/vulnerabilities?package={name}` - Filter by package
+- `GET /api/secure/v1/vulnerabilities` - すべての脆弱性を一覧表示
+- `GET /api/secure/v1/vulnerabilities/{id}` - 特定の脆弱性を取得
+- `PATCH /api/secure/v1/vulnerabilities/{id}` - 脆弱性を更新
+- `GET /api/secure/v1/vulnerabilities?severity={level}` - 重要度でフィルタリング
+- `GET /api/secure/v1/vulnerabilities?package={name}` - パッケージでフィルタリング
 
-### API Response Format
+### APIレスポンス形式
 
 ```json
 {
@@ -160,9 +184,9 @@ The tool currently supports the following Sysdig API endpoints:
 }
 ```
 
-## Library Usage
+## ライブラリとしての使用
 
-You can also use this tool as a Go library in your own projects:
+独自のプロジェクトでGoライブラリとして使用することもできます：
 
 ```go
 package main
@@ -195,7 +219,7 @@ func main() {
 }
 ```
 
-### Available Client Methods
+### 利用可能なクライアントメソッド
 
 - `ListVulnerabilities() ([]Vulnerability, error)`
 - `GetVulnerability(vulnID string) (*Vulnerability, error)`
@@ -203,48 +227,48 @@ func main() {
 - `ListVulnerabilitiesByPackage(packageName string) ([]Vulnerability, error)`
 - `ListVulnerabilitiesBySeverity(severity string) ([]Vulnerability, error)`
 
-## Error Handling
+## エラー処理
 
-The tool provides comprehensive error handling:
+ツールは包括的なエラー処理を提供します：
 
-- **Authentication Errors**: Invalid or missing API tokens
-- **Network Errors**: Connection issues or timeouts
-- **API Errors**: Invalid requests or server errors
-- **Not Found Errors**: When requesting non-existent vulnerabilities
+- **認証エラー**: 無効または不足しているAPIトークン
+- **ネットワークエラー**: 接続の問題やタイムアウト
+- **APIエラー**: 無効なリクエストやサーバーエラー
+- **Not Foundエラー**: 存在しない脆弱性をリクエストした場合
 
-## Regional Endpoints
+## リージョン別エンドポイント
 
-Sysdig operates in multiple regions. Use the appropriate endpoint for your region:
+Sysdigは複数のリージョンで運用されています。お使いのリージョンに適したエンドポイントを使用してください：
 
-- **US East (default)**: `https://us2.app.sysdig.com`
-- **US West**: `https://us3.app.sysdig.com`
+- **米国東部（デフォルト）**: `https://us2.app.sysdig.com`
+- **米国西部**: `https://us3.app.sysdig.com`
 - **EU**: `https://eu1.app.sysdig.com`
-- **Asia Pacific**: `https://au1.app.sysdig.com`
+- **アジア太平洋**: `https://au1.app.sysdig.com`
 
-## Contributing
+## コントリビューション
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+1. リポジトリをフォーク
+2. フィーチャーブランチを作成（`git checkout -b feature/amazing-feature`）
+3. 変更をコミット（`git commit -m 'Add some amazing feature'`）
+4. ブランチにプッシュ（`git push origin feature/amazing-feature`）
+5. プルリクエストを作成
 
-## License
+## ライセンス
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+このプロジェクトはMITライセンスのもとでライセンスされています - 詳細は[LICENSE](LICENSE)ファイルを参照してください。
 
-## Support
+## サポート
 
-For issues and questions:
+問題や質問がある場合：
 
-1. Check the [GitHub Issues](https://github.com/kaz-under-the-bridge/sysdig-vuls-utils/issues)
-2. Refer to the [Sysdig Documentation](https://docs.sysdig.com/)
-3. Contact Sysdig Support for API-specific issues
+1. [GitHub Issues](https://github.com/kaz-under-the-bridge/sysdig-vuls-utils/issues)を確認
+2. [Sysdigドキュメント](https://docs.sysdig.com/)を参照
+3. API固有の問題についてはSysdigサポートに連絡
 
-## Changelog
+## 変更履歴
 
 ### v1.0.0
-- Initial release
-- Basic vulnerability listing, retrieval, and update functionality
-- Support for configuration files and environment variables
-- CLI tool and Go library
+- 初回リリース
+- 基本的な脆弱性の一覧表示、取得、更新機能
+- 設定ファイルと環境変数のサポート
+- CLIツールとGoライブラリ
