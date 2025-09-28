@@ -1,0 +1,51 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch CLI",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/sysdig-vuls/main.go",
+      "env": {
+        "SYSDIG_API_TOKEN": "${env:SYSDIG_API_TOKEN}",
+        "SYSDIG_API_URL": "${env:SYSDIG_API_URL}"
+      },
+      "args": ["-command", "list"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug Test Package",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/pkg/...",
+      "env": {
+        "SYSDIG_API_TOKEN": "${env:SYSDIG_API_TOKEN}",
+        "SYSDIG_API_URL": "${env:SYSDIG_API_URL}"
+      },
+      "args": ["-test.v"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug Current Test",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${fileDirname}",
+      "env": {
+        "SYSDIG_API_TOKEN": "${env:SYSDIG_API_TOKEN}",
+        "SYSDIG_API_URL": "${env:SYSDIG_API_URL}"
+      },
+      "args": ["-test.v", "-test.run", "${selectedText}"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Attach to Process",
+      "type": "go",
+      "request": "attach",
+      "mode": "local",
+      "processId": "${command:pickProcess}"
+    }
+  ]
+}
