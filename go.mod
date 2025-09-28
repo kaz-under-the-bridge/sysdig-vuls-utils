@@ -1,3 +1,3 @@
 module github.com/kaz-under-the-bridge/sysdig-vuls-utils
 
-go 1.24.7
+go 1.23
