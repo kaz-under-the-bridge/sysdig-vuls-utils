@@ -156,6 +156,24 @@ make run
 - **Sysdig APIドキュメント**: https://us2.app.sysdig.com/apidocs/secure?_product=SDS
 - **Swagger UI**: https://us2.app.sysdig.com/secure/swagger.html
 
+## グローバルカスタムコマンド
+
+以下のGit操作コマンドがグローバルに定義されています（~/.claude/commands）：
+
+### /git:sync
+mainブランチに切り替えて最新の変更をプルします。
+```bash
+# 使用方法
+/git:sync
+```
+
+### /git:pr
+Git差分を元にコミット、新しいブランチ作成、プッシュ、PR作成を自動化します。
+```bash
+# 使用方法
+/git:pr "PRタイトル"
+```
+
 ## 注意事項
 
 - Go 1.23を使用（go.modで指定）
