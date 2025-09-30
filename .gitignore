@@ -32,6 +32,9 @@ go.work.sum
 # Build directory
 bin/
 
+# Task cache
+.task/
+
 # Editor/IDE
 # .idea/
 # .vscode/
