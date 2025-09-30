@@ -43,9 +43,8 @@ task.md
 python-examples
 
 # Data files
-data/*.csv
-data/*.db
-data/*.md
+data/
+!data/.gitkeep
 *.db
 *.csv
 
