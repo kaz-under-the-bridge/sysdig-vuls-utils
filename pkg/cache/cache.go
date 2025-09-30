@@ -2,13 +2,9 @@ package cache
 
 import (
 	"database/sql"
-	"encoding/csv"
-	"encoding/json"
 	"fmt"
 	"os"
 	pathpkg "path/filepath"
-	"strings"
-	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/kaz-under-the-bridge/sysdig-vuls-utils/pkg/sysdig"
@@ -32,7 +28,7 @@ type Cache interface {
 
 // ScanResultCache interface for scan result caching with detailed vulnerability info
 type ScanResultCache interface {
-	SaveScanResults(scanType string, results []sysdig.ScanResult, detailedResults map[string]*sysdig.DetailedScanResponse) error
+	SaveScanResults(scanType string, results []sysdig.ScanResult, vulnerabilities map[string][]sysdig.Vulnerability) error
 	LoadScanResults(scanType string, days int) ([]ScanResultWithDetails, error)
 	ClearScanResults(scanType string) error
 	Close() error
@@ -40,8 +36,8 @@ type ScanResultCache interface {
 
 // ScanResultWithDetails combines scan result with its detailed vulnerability info
 type ScanResultWithDetails struct {
-	ScanResult sysdig.ScanResult
-	Details    *sysdig.DetailedScanResponse
+	ScanResult      sysdig.ScanResult
+	Vulnerabilities []sysdig.Vulnerability
 }
 
 // SQLiteCache implements Cache interface using SQLite
@@ -50,7 +46,7 @@ type SQLiteCache struct {
 	filepath string
 }
 
-// CSVCache implements Cache interface using CSV files
+// CSVCache is deprecated - SQLite only
 type CSVCache struct {
 	filepath string
 }
@@ -125,6 +121,7 @@ func (c *SQLiteCache) createTables() error {
 			scan_type TEXT NOT NULL,
 			created_at TEXT,
 			pull_string TEXT,
+			asset_type TEXT,
 			aws_account_id TEXT,
 			aws_account_name TEXT,
 			aws_region TEXT,
@@ -190,6 +187,7 @@ func (c *SQLiteCache) createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_exploitable ON vulnerabilities(exploitable)`,
 		`CREATE INDEX IF NOT EXISTS idx_aws_account ON aws_resources(account_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_resource_type ON aws_resources(resource_type)`,
+		`CREATE INDEX IF NOT EXISTS idx_asset_type ON scan_results(asset_type)`,
 	}
 
 	for _, query := range queries {
@@ -216,75 +214,35 @@ func (c *SQLiteCache) Save(vulnerabilities []sysdig.Vulnerability) error {
 
 	// Insert vulnerabilities
 	for _, vuln := range vulnerabilities {
-		metadata, _ := json.Marshal(vuln.Metadata)
+		// Extract fields from V2 structure
+		fixedVersion := ""
+		if vuln.FixedInVersion != nil {
+			fixedVersion = *vuln.FixedInVersion
+		}
 
 		_, err := tx.Exec(`
 			INSERT INTO vulnerabilities (
 				id, cve, severity, status, description, score, vector,
 				published_at, updated_at, fixable, exploitable, fixed_version, metadata
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			vuln.ID, vuln.CVE, vuln.Severity, vuln.Status, vuln.Description,
-			vuln.Score, vuln.Vector, vuln.PublishedAt, vuln.UpdatedAt,
-			vuln.Fixable, vuln.Exploitable, vuln.FixedVersion, string(metadata),
+			vuln.ID, vuln.Vuln.Name, vuln.Vuln.SeverityString(), "", "",
+			vuln.Vuln.CvssScore, "", vuln.Vuln.DisclosureDate, "",
+			vuln.Vuln.Fixable, vuln.Vuln.Exploitable, fixedVersion, "",
 		)
 		if err != nil {
 			return fmt.Errorf("failed to insert vulnerability: %w", err)
 		}
 
-		// Insert packages
-		for _, pkg := range vuln.Packages {
-			_, err := tx.Exec(`
-				INSERT INTO vulnerability_packages (vuln_id, package_name)
-				VALUES (?, ?)`, vuln.ID, pkg)
-			if err != nil {
-				return fmt.Errorf("failed to insert package: %w", err)
-			}
+		// Insert package information
+		_, err = tx.Exec(`
+			INSERT INTO vulnerability_packages (vuln_id, package_name)
+			VALUES (?, ?)`, vuln.ID, vuln.Package.Name)
+		if err != nil {
+			return fmt.Errorf("failed to insert package: %w", err)
 		}
 
-		// Insert detection sources
-		for _, source := range vuln.DetectionSources {
-			_, err := tx.Exec(`
-				INSERT INTO detection_sources (
-					vuln_id, type, location, cluster_name, namespace, pod_name
-				) VALUES (?, ?, ?, ?, ?, ?)`,
-				vuln.ID, source.Type, source.Location, source.ClusterName,
-				source.Namespace, source.PodName,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to insert detection source: %w", err)
-			}
-		}
-
-		// Insert AWS resources
-		for _, resource := range vuln.AWSResources {
-			_, err := tx.Exec(`
-				INSERT INTO aws_resources (
-					vuln_id, account_id, region, resource_type, resource_id,
-					resource_name, instance_id, cluster_arn, function_arn
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				vuln.ID, resource.AccountID, resource.Region, resource.ResourceType,
-				resource.ResourceID, resource.ResourceName, resource.InstanceID,
-				resource.ClusterArn, resource.FunctionArn,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to insert AWS resource: %w", err)
-			}
-		}
-
-		// Insert container info
-		if vuln.ContainerInfo != nil {
-			_, err := tx.Exec(`
-				INSERT INTO container_info (
-					vuln_id, image_name, image_tag, image_id, registry, image_digest
-				) VALUES (?, ?, ?, ?, ?, ?)`,
-				vuln.ID, vuln.ContainerInfo.ImageName, vuln.ContainerInfo.ImageTag,
-				vuln.ContainerInfo.ImageID, vuln.ContainerInfo.Registry,
-				vuln.ContainerInfo.ImageDigest,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to insert container info: %w", err)
-			}
-		}
+		// V2 API doesn't have detection sources, AWS resources, or container info at the vulnerability level
+		// These would be part of the scan result context instead
 	}
 
 	return tx.Commit()
@@ -294,10 +252,11 @@ func (c *SQLiteCache) Save(vulnerabilities []sysdig.Vulnerability) error {
 func (c *SQLiteCache) Load() ([]sysdig.Vulnerability, error) {
 	// Query vulnerabilities
 	rows, err := c.db.Query(`
-		SELECT id, cve, severity, status, description, score, vector,
-		       published_at, updated_at, fixable, exploitable, fixed_version, metadata
-		FROM vulnerabilities
-		ORDER BY severity DESC, score DESC
+		SELECT v.id, v.cve, v.severity, v.description, v.score, v.published_at,
+		       v.fixable, v.exploitable, v.fixed_version, p.package_name
+		FROM vulnerabilities v
+		LEFT JOIN vulnerability_packages p ON v.id = p.vuln_id
+		ORDER BY v.severity DESC, v.score DESC
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query vulnerabilities: %w", err)
@@ -309,107 +268,54 @@ func (c *SQLiteCache) Load() ([]sysdig.Vulnerability, error) {
 
 	for rows.Next() {
 		var vuln sysdig.Vulnerability
-		var metadataStr string
+		var cve, severityStr, description, publishedAt, fixedVersion, packageName string
+		var score float64
+		var fixable, exploitable bool
 
 		err := rows.Scan(
-			&vuln.ID, &vuln.CVE, &vuln.Severity, &vuln.Status, &vuln.Description,
-			&vuln.Score, &vuln.Vector, &vuln.PublishedAt, &vuln.UpdatedAt,
-			&vuln.Fixable, &vuln.Exploitable, &vuln.FixedVersion, &metadataStr,
+			&vuln.ID, &cve, &severityStr, &description, &score, &publishedAt,
+			&fixable, &exploitable, &fixedVersion, &packageName,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan vulnerability: %w", err)
 		}
 
-		if metadataStr != "" {
-			json.Unmarshal([]byte(metadataStr), &vuln.Metadata)
+		// Check if we've already created this vulnerability
+		if existing, exists := vulnMap[vuln.ID]; exists {
+			vuln = *existing
+		} else {
+			// Create V2 structure
+			vuln.Vuln = sysdig.VulnV2{
+				Name:           cve,
+				CvssScore:      score,
+				DisclosureDate: publishedAt,
+				Fixable:        fixable,
+				Exploitable:    exploitable,
+			}
+
+			// Set severity from string
+			switch severityStr {
+			case "low":
+				vuln.Vuln.Severity = 1
+			case "medium":
+				vuln.Vuln.Severity = 2
+			case "high":
+				vuln.Vuln.Severity = 3
+			case "critical":
+				vuln.Vuln.Severity = 4
+			}
+
+			if fixedVersion != "" {
+				vuln.FixedInVersion = &fixedVersion
+			}
+
+			vulnerabilities = append(vulnerabilities, vuln)
+			vulnMap[vuln.ID] = &vulnerabilities[len(vulnerabilities)-1]
 		}
 
-		vulnerabilities = append(vulnerabilities, vuln)
-		vulnMap[vuln.ID] = &vulnerabilities[len(vulnerabilities)-1]
-	}
-
-	// Load packages
-	pkgRows, err := c.db.Query("SELECT vuln_id, package_name FROM vulnerability_packages")
-	if err != nil {
-		return nil, fmt.Errorf("failed to query packages: %w", err)
-	}
-	defer pkgRows.Close()
-
-	for pkgRows.Next() {
-		var vulnID, pkgName string
-		if err := pkgRows.Scan(&vulnID, &pkgName); err != nil {
-			continue
-		}
-		if vuln, ok := vulnMap[vulnID]; ok {
-			vuln.Packages = append(vuln.Packages, pkgName)
-		}
-	}
-
-	// Load detection sources
-	srcRows, err := c.db.Query(`
-		SELECT vuln_id, type, location, cluster_name, namespace, pod_name
-		FROM detection_sources
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query detection sources: %w", err)
-	}
-	defer srcRows.Close()
-
-	for srcRows.Next() {
-		var vulnID string
-		var src sysdig.DetectionSource
-		if err := srcRows.Scan(&vulnID, &src.Type, &src.Location,
-			&src.ClusterName, &src.Namespace, &src.PodName); err != nil {
-			continue
-		}
-		if vuln, ok := vulnMap[vulnID]; ok {
-			vuln.DetectionSources = append(vuln.DetectionSources, src)
-		}
-	}
-
-	// Load AWS resources
-	awsRows, err := c.db.Query(`
-		SELECT vuln_id, account_id, region, resource_type, resource_id,
-		       resource_name, instance_id, cluster_arn, function_arn
-		FROM aws_resources
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query AWS resources: %w", err)
-	}
-	defer awsRows.Close()
-
-	for awsRows.Next() {
-		var vulnID string
-		var res sysdig.AWSResource
-		if err := awsRows.Scan(&vulnID, &res.AccountID, &res.Region, &res.ResourceType,
-			&res.ResourceID, &res.ResourceName, &res.InstanceID,
-			&res.ClusterArn, &res.FunctionArn); err != nil {
-			continue
-		}
-		if vuln, ok := vulnMap[vulnID]; ok {
-			vuln.AWSResources = append(vuln.AWSResources, res)
-		}
-	}
-
-	// Load container info
-	containerRows, err := c.db.Query(`
-		SELECT vuln_id, image_name, image_tag, image_id, registry, image_digest
-		FROM container_info
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query container info: %w", err)
-	}
-	defer containerRows.Close()
-
-	for containerRows.Next() {
-		var vulnID string
-		var info sysdig.ContainerInfo
-		if err := containerRows.Scan(&vulnID, &info.ImageName, &info.ImageTag,
-			&info.ImageID, &info.Registry, &info.ImageDigest); err != nil {
-			continue
-		}
-		if vuln, ok := vulnMap[vulnID]; ok {
-			vuln.ContainerInfo = &info
+		// Set package information if available
+		if packageName != "" {
+			vulnMap[vuln.ID].Package.Name = packageName
 		}
 	}
 
@@ -432,194 +338,14 @@ func NewCSVCache(filepath string) *CSVCache {
 	return &CSVCache{filepath: filepath}
 }
 
-// Save saves vulnerabilities to CSV file
+// Save - CSV is deprecated, use SQLite
 func (c *CSVCache) Save(vulnerabilities []sysdig.Vulnerability) error {
-	// Create directory if it doesn't exist
-	dir := pathpkg.Dir(c.filepath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create cache directory: %w", err)
-	}
-
-	// Create CSV file
-	file, err := os.Create(c.filepath)
-	if err != nil {
-		return fmt.Errorf("failed to create CSV file: %w", err)
-	}
-	defer file.Close()
-
-	writer := csv.NewWriter(file)
-	defer writer.Flush()
-
-	// Write header
-	header := []string{
-		"ID", "CVE", "Severity", "Status", "Description", "Score", "Vector",
-		"PublishedAt", "UpdatedAt", "Fixable", "Exploitable", "FixedVersion",
-		"Packages", "DetectionSources", "AWSAccounts", "AWSResourceTypes",
-		"ContainerImage", "ContainerTag", "CachedAt",
-	}
-	if err := writer.Write(header); err != nil {
-		return fmt.Errorf("failed to write header: %w", err)
-	}
-
-	// Write data
-	for _, vuln := range vulnerabilities {
-		// Prepare complex fields
-		packages := strings.Join(vuln.Packages, ";")
-
-		detectionSources := []string{}
-		for _, src := range vuln.DetectionSources {
-			detectionSources = append(detectionSources,
-				fmt.Sprintf("%s:%s", src.Type, src.Location))
-		}
-
-		awsAccounts := []string{}
-		awsResourceTypes := []string{}
-		accountMap := make(map[string]bool)
-		resourceTypeMap := make(map[string]bool)
-
-		for _, res := range vuln.AWSResources {
-			accountMap[res.AccountID] = true
-			resourceTypeMap[res.ResourceType] = true
-		}
-
-		for account := range accountMap {
-			awsAccounts = append(awsAccounts, account)
-		}
-		for resType := range resourceTypeMap {
-			awsResourceTypes = append(awsResourceTypes, resType)
-		}
-
-		containerImage := ""
-		containerTag := ""
-		if vuln.ContainerInfo != nil {
-			containerImage = vuln.ContainerInfo.ImageName
-			containerTag = vuln.ContainerInfo.ImageTag
-		}
-
-		record := []string{
-			vuln.ID,
-			vuln.CVE,
-			vuln.Severity,
-			vuln.Status,
-			vuln.Description,
-			fmt.Sprintf("%.2f", vuln.Score),
-			vuln.Vector,
-			vuln.PublishedAt,
-			vuln.UpdatedAt,
-			fmt.Sprintf("%t", vuln.Fixable),
-			fmt.Sprintf("%t", vuln.Exploitable),
-			vuln.FixedVersion,
-			packages,
-			strings.Join(detectionSources, ";"),
-			strings.Join(awsAccounts, ";"),
-			strings.Join(awsResourceTypes, ";"),
-			containerImage,
-			containerTag,
-			time.Now().Format(time.RFC3339),
-		}
-
-		if err := writer.Write(record); err != nil {
-			return fmt.Errorf("failed to write record: %w", err)
-		}
-	}
-
-	return nil
+	return fmt.Errorf("CSV cache is deprecated, use SQLite cache instead")
 }
 
-// Load loads vulnerabilities from CSV file
+// Load - CSV is deprecated, use SQLite
 func (c *CSVCache) Load() ([]sysdig.Vulnerability, error) {
-	file, err := os.Open(c.filepath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []sysdig.Vulnerability{}, nil
-		}
-		return nil, fmt.Errorf("failed to open CSV file: %w", err)
-	}
-	defer file.Close()
-
-	reader := csv.NewReader(file)
-
-	// Read header
-	header, err := reader.Read()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read header: %w", err)
-	}
-
-	// Create header index map
-	headerMap := make(map[string]int)
-	for i, h := range header {
-		headerMap[h] = i
-	}
-
-	vulnerabilities := []sysdig.Vulnerability{}
-
-	// Read records
-	for {
-		record, err := reader.Read()
-		if err != nil {
-			break
-		}
-
-		vuln := sysdig.Vulnerability{
-			ID:           record[headerMap["ID"]],
-			CVE:          record[headerMap["CVE"]],
-			Severity:     record[headerMap["Severity"]],
-			Status:       record[headerMap["Status"]],
-			Description:  record[headerMap["Description"]],
-			Vector:       record[headerMap["Vector"]],
-			PublishedAt:  record[headerMap["PublishedAt"]],
-			UpdatedAt:    record[headerMap["UpdatedAt"]],
-			FixedVersion: record[headerMap["FixedVersion"]],
-		}
-
-		// Parse score
-		fmt.Sscanf(record[headerMap["Score"]], "%f", &vuln.Score)
-
-		// Parse boolean fields
-		vuln.Fixable = record[headerMap["Fixable"]] == "true"
-		vuln.Exploitable = record[headerMap["Exploitable"]] == "true"
-
-		// Parse packages
-		if packages := record[headerMap["Packages"]]; packages != "" {
-			vuln.Packages = strings.Split(packages, ";")
-		}
-
-		// Parse detection sources
-		if sources := record[headerMap["DetectionSources"]]; sources != "" {
-			for _, src := range strings.Split(sources, ";") {
-				parts := strings.Split(src, ":")
-				if len(parts) >= 2 {
-					vuln.DetectionSources = append(vuln.DetectionSources, sysdig.DetectionSource{
-						Type:     parts[0],
-						Location: parts[1],
-					})
-				}
-			}
-		}
-
-		// Parse AWS resources (simplified)
-		if accounts := record[headerMap["AWSAccounts"]]; accounts != "" {
-			for _, account := range strings.Split(accounts, ";") {
-				if account != "" {
-					vuln.AWSResources = append(vuln.AWSResources, sysdig.AWSResource{
-						AccountID: account,
-					})
-				}
-			}
-		}
-
-		// Parse container info
-		if image := record[headerMap["ContainerImage"]]; image != "" {
-			vuln.ContainerInfo = &sysdig.ContainerInfo{
-				ImageName: image,
-				ImageTag:  record[headerMap["ContainerTag"]],
-			}
-		}
-
-		vulnerabilities = append(vulnerabilities, vuln)
-	}
-
-	return vulnerabilities, nil
+	return nil, fmt.Errorf("CSV cache is deprecated, use SQLite cache instead")
 }
 
 // Clear clears the cache by removing the CSV file
@@ -641,8 +367,8 @@ func NewScanResultCache(filepath string) (ScanResultCache, error) {
 	return cache, nil
 }
 
-// SaveScanResults implements ScanResultCache interface for SQLiteCache
-func (c *SQLiteCache) SaveScanResults(scanType string, results []sysdig.ScanResult, detailedResults map[string]*sysdig.DetailedScanResponse) error {
+// SaveScanResults implements ScanResultCache interface for SQLiteCache - V2 API only
+func (c *SQLiteCache) SaveScanResults(scanType string, results []sysdig.ScanResult, vulnerabilities map[string][]sysdig.Vulnerability) error {
 	tx, err := c.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -652,10 +378,10 @@ func (c *SQLiteCache) SaveScanResults(scanType string, results []sysdig.ScanResu
 	// Prepare statements
 	insertScanResult, err := tx.Prepare(`
 		INSERT OR REPLACE INTO scan_results
-		(result_id, scan_type, created_at, pull_string, aws_account_id, aws_account_name,
+		(result_id, scan_type, created_at, pull_string, asset_type, aws_account_id, aws_account_name,
 		 aws_region, workload_type, workload_name, cluster_name, container_name,
 		 container_image, critical_count, high_count, medium_count, low_count, total_count)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare scan result statement: %w", err)
 	}
@@ -695,9 +421,12 @@ func (c *SQLiteCache) SaveScanResults(scanType string, results []sysdig.ScanResu
 		totalCount := result.VulnTotalBySeverity.Critical + result.VulnTotalBySeverity.High +
 					 result.VulnTotalBySeverity.Medium + result.VulnTotalBySeverity.Low
 
+		// Extract asset type from scope
+		assetType := extractStringFromScope(result.Scope, "asset.type")
+
 		// Insert scan result
 		_, err = insertScanResult.Exec(
-			result.ResultID, scanType, result.CreatedAt, result.PullString,
+			result.ResultID, scanType, result.CreatedAt, result.PullString, assetType,
 			awsAccountID, awsAccountName, awsRegion, workloadType, workloadName,
 			clusterName, containerName, containerImage,
 			result.VulnTotalBySeverity.Critical, result.VulnTotalBySeverity.High,
@@ -706,19 +435,21 @@ func (c *SQLiteCache) SaveScanResults(scanType string, results []sysdig.ScanResu
 			return fmt.Errorf("failed to insert scan result: %w", err)
 		}
 
-		// Insert detailed vulnerabilities if available
-		if details, exists := detailedResults[result.ResultID]; exists && details != nil {
-			for vulnID, vuln := range details.Vulnerabilities {
-				var packageName, packagePath string
-				if pkg, pkgExists := details.Packages[vuln.PackageRef]; pkgExists {
-					packageName = pkg.Name
-					packagePath = pkg.Path
+		// Insert V2 vulnerabilities if available
+		if vulnList, exists := vulnerabilities[result.ResultID]; exists {
+			for _, vuln := range vulnList {
+				// V2 API uses proper fixable logic based on fixedInVersion
+				fixedVersion := ""
+				fixable := vuln.Vuln.Fixable
+				if vuln.FixedInVersion != nil {
+					fixedVersion = *vuln.FixedInVersion
+					fixable = true
 				}
 
 				_, err = insertVuln.Exec(
-					result.ResultID, vulnID, vuln.Name, vuln.Severity,
-					vuln.DisclosureDate, vuln.PackageRef, packageName, packagePath,
-					vuln.Fixable, vuln.Exploitable, vuln.FixedVersion)
+					result.ResultID, vuln.ID, vuln.Vuln.Name, vuln.Vuln.SeverityString(),
+					vuln.Vuln.DisclosureDate, "", vuln.Package.Name, "",
+					fixable, vuln.Vuln.Exploitable, fixedVersion)
 				if err != nil {
 					return fmt.Errorf("failed to insert vulnerability: %w", err)
 				}

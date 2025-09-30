@@ -1,0 +1,109 @@
+---
+alwaysApply: true
+---
+
+# Sysdig脆弱性管理ツール - プロジェクトルール
+
+## 言語設定
+- ドキュメントは日本語で記述する
+- コード内のコメントは日本語で記述する
+- gitコミットメッセージは日本語で記述する
+
+## プロジェクト概要
+
+SysdigのクラウドベースRCE（ランタイムコンテナセキュリティ）が検出した脆弱性を管理するためのGolang製CLIツール＆ライブラリ。Sysdig V2 APIを使用して、パイプラインスキャン結果とランタイムスキャン結果から脆弱性データを取得・キャッシュし、SQLiteデータベースで管理する。
+
+## 標準的な実行フロー
+
+### 脆弱性データ取得（推奨方法）
+
+```bash
+# スクリプトを使用した並列取得（推奨）
+./scripts/fetch_vulnerabilities.sh [日数] [バッチサイズ] [API遅延秒数]
+
+# またはパフォーマンスレベル指定
+./scripts/fetch_vulnerabilities.sh [日数] perf [レベル1-30]
+
+# デフォルト: 7日間、バッチサイズ2、API遅延3秒
+./scripts/fetch_vulnerabilities.sh
+
+# 例: 3日間、レベル15（バランス型）
+./scripts/fetch_vulnerabilities.sh 3 perf 15
+```
+
+#### パフォーマンスレベルの目安
+- **レベル1-5**: 安全重視（Rate limit回避優先）
+- **レベル10-15**: バランス型（デフォルト推奨）
+- **レベル20-30**: 速度重視（Rate limitリスク有り）
+
+### 生成されるファイル
+
+スクリプト実行により以下のファイルが生成されます:
+- `data/YYYYMMDD_HHMMSS/pipeline_vulnerabilities.db` - パイプラインスキャン結果
+- `data/YYYYMMDD_HHMMSS/runtime_vulnerabilities.db` - ランタイムスキャン結果
+- `/tmp/pipeline_YYYYMMDD_HHMMSS.log` - パイプライン取得ログ
+- `/tmp/runtime_YYYYMMDD_HHMMSS.log` - ランタイム取得ログ
+
+## 環境変数設定
+
+`.devcontainer/.env.example`をコピーして`.devcontainer/.env`を作成:
+
+```bash
+cp .devcontainer/.env.example .devcontainer/.env
+```
+
+必須環境変数:
+- `SYSDIG_API_TOKEN`: Sysdig APIトークン
+- `SYSDIG_API_URL`: APIエンドポイント（デフォルト: https://us2.app.sysdig.com）
+
+## 開発タスク管理
+
+このプロジェクトはTaskfile.ymlでタスクを管理しています。
+
+```bash
+# タスク一覧表示
+task --list
+
+# 主要コマンド
+task build           # ビルド
+task test            # テスト実行
+task lint            # リント
+task check           # 全品質チェック
+```
+
+## アーキテクチャ
+
+### パッケージ構造
+- `cmd/sysdig-vuls/`: CLIエントリポイント
+- `pkg/sysdig/`: Sysdig V2 APIクライアント
+- `pkg/config/`: 設定管理
+- `pkg/cache/`: SQLiteキャッシュ実装
+- `pkg/output/`: 出力フォーマット
+
+### 重要な実装ポイント
+
+1. **API呼び出し**: すべてのAPI呼び出しは`pkg/sysdig/client.go`の`makeRequest()`メソッドを通じて実行
+2. **Fixable判定**: V2 APIでは`FixedInVersion`がnullの場合は`Fixable=false`と自動判定
+3. **並行処理**: pipeline-cache/runtime-cacheコマンドでバッチ処理を実装
+4. **レート制限対応**: 最大3回リトライ、APIディレイで制御
+
+### SQLiteスキーマ
+
+- `scan_results`: スキャン結果のメタデータ（result_id, scan_type, AWS情報）
+- `scan_vulnerabilities`: 各スキャン結果に紐づく詳細な脆弱性情報
+
+## Runtime制限
+
+Runtime結果取得では、asset.type別に取得件数を制限可能:
+
+```bash
+# デフォルト制限（推奨）
+# workload: 300件、host: 無制限、container: 無制限
+./bin/sysdig-vuls -command runtime-cache -days 7 -cache runtime.db
+
+# カスタム制限
+./bin/sysdig-vuls -command runtime-cache \
+  -runtime-workload-limit 100 \
+  -runtime-host-limit 20 \
+  -runtime-container-limit 10
+```
