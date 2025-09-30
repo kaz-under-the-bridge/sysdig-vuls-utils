@@ -32,6 +32,9 @@ go.work.sum
 # Build directory
 bin/
 
+# Task cache
+.task/
+
 # Editor/IDE
 # .idea/
 # .vscode/
@@ -40,8 +43,8 @@ task.md
 python-examples
 
 # Data files
-data/*.csv
-data/*.db
+data/
+!data/.gitkeep
 *.db
 *.csv
 
@@ -50,3 +53,5 @@ test_*.db
 v2_*.db
 production_*.db
 test_exploitable_*.db
+
+bin/

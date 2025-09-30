@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./scripts/fetch_vulnerabilities.sh:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

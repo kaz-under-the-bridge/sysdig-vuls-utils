@@ -2,34 +2,23 @@
 
 **Sysdig脆弱性管理APIツールセット**
 
-SysdigのクラウドベースRCE（ランタイムコンテナセキュリティ）が検出した脆弱性を管理するためのGolang製コマンドラインツール＆ライブラリです。Sysdig Cloud環境における脆弱性の一覧取得、詳細情報の取得、ステータス更新などが可能です。
+SysdigのクラウドベースRCE（ランタイムコンテナセキュリティ）が検出した脆弱性を管理するためのGolang製コマンドラインツール＆ライブラリです。Sysdig V2 APIを使用して、パイプラインスキャン結果とランタイムスキャン結果から脆弱性データを取得・キャッシュし、SQLiteデータベースで管理します。
 
 ## 機能
 
-### 基本機能
-- **脆弱性一覧の取得**: Sysdig環境内のすべての脆弱性を取得
-- **脆弱性詳細の取得**: 特定の脆弱性の詳細情報を取得
-- **脆弱性の更新**: 脆弱性のステータスやメタデータを変更
-
-### 高度なフィルタリング
-- **重要度でフィルタリング**: 重要度レベル（critical、high、medium、low）で脆弱性を検索
-- **修正可能な脆弱性**: fixable=trueの脆弱性のみを表示
-- **エクスプロイト可能**: exploitable=trueの脆弱性のみを表示
-- **パッケージでフィルタリング**: 特定のパッケージに影響する脆弱性を検索
-- **複合フィルタ**: 複数の条件を組み合わせた高度な検索
+### 主要機能
+- **パイプライン・ランタイムスキャン結果の取得**: CI/CDパイプラインと本番環境の脆弱性データを並列取得
+- **SQLiteキャッシュ**: スキャン結果をローカルSQLiteデータベースに保存
+- **高度なフィルタリング**: 重要度、修正可能性、悪用可能性による絞り込み
+- **Runtime制限機能**: asset.type別（workload/host/container）の取得件数制限
+- **並行処理**: バッチサイズとAPIディレイによる効率的なデータ取得
+- **レート制限対応**: 自動リトライ機構によるAPI制限回避
 
 ### データ管理
-- **ローカルキャッシュ**: SQLiteまたはCSVによるローカルデータ保存
-- **AWSリソース追跡**: EC2、Lambda、ECS、EKS、ECRの脆弱性を追跡
-- **検出場所の判定**: runtime、container、image repoでの検出を記録
-- **コンテナ情報**: イメージ名、タグ、レジストリ情報を管理
-
-### 出力形式
-- **テーブル形式**: 見やすいテーブル形式での出力
-- **詳細ビュー**: 脆弱性の完全な情報表示
-- **サマリービュー**: 統計情報と概要の表示
-- **AWSリソースビュー**: AWS特化の脆弱性レポート
-- **CSV/SQLite出力**: 分析ツール連携用のデータ出力
+- **SQLiteデータベース**: 脆弱性データと詳細スキャン結果をリレーショナル管理
+- **スキャン結果追跡**: パイプラインとランタイムのデータを統合管理
+- **AWS情報**: AWSアカウント、リージョン、ワークロード情報の記録
+- **コンテナ情報**: イメージ名、タグ、レジストリ情報の管理
 
 ## インストール
 
@@ -112,6 +101,35 @@ JSON形式の設定ファイルを作成します（`examples/config.json`を参
 }
 ```
 
+## クイックスタート
+
+### 推奨: スクリプトを使用した脆弱性データ取得
+
+```bash
+# デフォルト設定で実行（7日間、バッチサイズ2、API遅延3秒）
+./scripts/fetch_vulnerabilities.sh
+
+# パフォーマンスレベル指定（1-30）
+./scripts/fetch_vulnerabilities.sh 7 perf 15  # バランス型
+
+# 直接指定
+./scripts/fetch_vulnerabilities.sh 3 2 3  # 3日間、バッチ2、遅延3秒
+```
+
+スクリプトは以下を自動実行します:
+1. バイナリの自動ビルド（未ビルドの場合）
+2. パイプラインスキャン結果の並列取得
+3. ランタイムスキャン結果の並列取得
+4. タイムスタンプ付きディレクトリにデータベース保存
+
+### 生成されるファイル
+
+```
+data/YYYYMMDD_HHMMSS/
+  ├── pipeline_vulnerabilities.db  # パイプラインスキャン結果
+  └── runtime_vulnerabilities.db   # ランタイムスキャン結果
+```
+
 ## 使用方法
 
 ### コマンドラインインターフェース
@@ -145,173 +163,139 @@ sysdig-vuls [options]
 
 ### 使用例
 
-#### すべての脆弱性を一覧表示
+#### パイプラインスキャン結果の表示
 
 ```bash
-# 環境変数を使用
-export SYSDIG_API_TOKEN="your_token_here"
-sysdig-vuls -command list
+# パイプラインスキャン結果を一覧表示（最新7日間）
+./bin/sysdig-vuls -command pipeline -days 7
 
-# テーブル形式で出力
-sysdig-vuls -token "your_token_here" -command list -output table
-
-# 詳細形式で出力
-sysdig-vuls -token "your_token_here" -command list -output detailed
+# パイプラインスキャン結果をキャッシュ
+./bin/sysdig-vuls -command pipeline-cache -days 7 -cache ./data/pipeline.db
 ```
 
-#### フィルタを使用した検索
+#### ランタイムスキャン結果の表示
 
 ```bash
-# Criticalかつ修正可能な脆弱性のみ表示
-sysdig-vuls -token "your_token_here" -command filter -severity critical -fixable
+# ランタイムスキャン結果を一覧表示（最新7日間、デフォルト制限適用）
+./bin/sysdig-vuls -command runtime -days 7
 
-# HighとCriticalでエクスプロイト可能な脆弱性
-sysdig-vuls -token "your_token_here" -command filter -severity "critical,high" -exploitable
-
-# 修正可能かつエクスプロイト可能な脆弱性（自動的にcritical/highフィルタ）
-sysdig-vuls -token "your_token_here" -command filter -fixable -exploitable
+# カスタム制限でランタイムスキャン結果をキャッシュ
+./bin/sysdig-vuls -command runtime-cache -days 7 \
+  -runtime-workload-limit 100 \
+  -runtime-host-limit 20 \
+  -runtime-container-limit 10 \
+  -cache ./data/runtime.db
 ```
 
-#### 脆弱性サマリーの表示
+#### 特定スキャン結果の詳細表示
 
 ```bash
-# 脆弱性の統計情報を表示
-sysdig-vuls -token "your_token_here" -command summary
+# スキャン結果IDを指定して詳細表示
+./bin/sysdig-vuls -command scan-details -result-id YOUR_RESULT_ID
+
+# High以上の脆弱性のみ表示
+./bin/sysdig-vuls -command scan-details -result-id YOUR_RESULT_ID -above-high
+
+# 受け入れていない脆弱性のみ表示
+./bin/sysdig-vuls -command scan-details -result-id YOUR_RESULT_ID -only-not-accepted
 ```
 
-#### ローカルキャッシュへの保存
+#### リスク受容管理
 
 ```bash
-# SQLiteデータベースに保存
-sysdig-vuls -token "your_token_here" -command cache -cache-type sqlite -cache ./data/vulns.db
+# 受容済みリスク一覧
+./bin/sysdig-vuls -command accepted-risks
 
-# CSVファイルに保存（フィルタ付き）
-sysdig-vuls -token "your_token_here" -command cache -cache-type csv -cache ./data/vulns.csv -severity "critical,high" -fixable
+# CVEをリスク受容として登録
+./bin/sysdig-vuls -command create-acceptance \
+  -create-acceptance "CVE-2023-1234,CVE-2023-5678" \
+  -expiration-days 30
 ```
 
-#### AWSリソース別の脆弱性表示
+## SQLiteデータベース分析
 
-```bash
-# AWSリソース形式で脆弱性を表示
-sysdig-vuls -token "your_token_here" -command list -output aws
-```
+生成されたSQLiteデータベースは標準的なSQLツールで分析できます。
 
-#### 特定の脆弱性を取得
+### 基本的な分析クエリ
 
-```bash
-sysdig-vuls -token "your_token_here" -command get -id CVE-2023-1234
-```
+```sql
+-- 重要度別の脆弱性集計
+SELECT
+  CASE
+    WHEN severity_value = 4 THEN 'Critical'
+    WHEN severity_value = 3 THEN 'High'
+    WHEN severity_value = 2 THEN 'Medium'
+    ELSE 'Low'
+  END as severity,
+  COUNT(*) as total,
+  SUM(CASE WHEN fixable = 1 THEN 1 ELSE 0 END) as fixable,
+  SUM(CASE WHEN exploitable = 1 THEN 1 ELSE 0 END) as exploitable
+FROM scan_vulnerabilities
+WHERE scan_type = 'runtime'
+GROUP BY severity_value
+ORDER BY severity_value DESC;
 
-#### 脆弱性ステータスの更新
+-- 最も脆弱性が多いイメージTop 10
+SELECT
+  pull_string,
+  COUNT(*) as vuln_count,
+  SUM(CASE WHEN severity_value >= 3 THEN 1 ELSE 0 END) as high_critical
+FROM scan_results
+WHERE scan_type = 'pipeline'
+GROUP BY pull_string
+ORDER BY high_critical DESC, vuln_count DESC
+LIMIT 10;
 
-```bash
-sysdig-vuls -token "your_token_here" -command update -id CVE-2023-1234
+-- asset.type別の脆弱性分布
+SELECT
+  asset_type,
+  COUNT(*) as total_scans,
+  SUM(critical_count) as total_critical,
+  SUM(high_count) as total_high
+FROM scan_results
+WHERE scan_type = 'runtime'
+GROUP BY asset_type
+ORDER BY total_critical DESC;
 ```
 
 ## APIドキュメント
 
-このツールはSysdig Secure APIをベースにしています。詳細なAPIドキュメントは以下を参照してください：
+このツールはSysdig Secure V2 APIを使用しています。詳細なAPIドキュメントは以下を参照してください：
 
 - **Sysdig APIドキュメント**: https://us2.app.sysdig.com/apidocs/secure?_product=SDS
 - **Swagger UI**: https://us2.app.sysdig.com/secure/swagger.html
 
-### サポートされているAPIエンドポイント
+### 主要エンドポイント
 
-ツールは現在、以下のSysdig APIエンドポイントをサポートしています：
+- `GET /api/scanning/v1/resultsDirect/{resultID}/vulnPkgs` - スキャン結果の脆弱性詳細取得
+- `GET /secure/vulnerability/v1/pipeline-results` - パイプラインスキャン結果一覧
+- `GET /secure/vulnerability/v1/runtime-results` - ランタイムスキャン結果一覧
+- `GET /secure/vulnerability/v1beta1/accepted-risks` - リスク受容一覧
+- `POST /secure/vulnerability/v1beta1/accepted-risks` - リスク受容作成
 
-#### 脆弱性
+## 開発
 
-- `GET /api/secure/v1/vulnerabilities` - すべての脆弱性を一覧表示
-- `GET /api/secure/v1/vulnerabilities/{id}` - 特定の脆弱性を取得
-- `PATCH /api/secure/v1/vulnerabilities/{id}` - 脆弱性を更新
-- `GET /api/secure/v1/vulnerabilities?severity={level}` - 重要度でフィルタリング
-- `GET /api/secure/v1/vulnerabilities?package={name}` - パッケージでフィルタリング
+### ビルドとテスト
 
-### APIレスポンス形式
+このプロジェクトはTaskfile.ymlでタスク管理しています：
 
-```json
-{
-  "data": [
-    {
-      "id": "CVE-2023-1234",
-      "cve": "CVE-2023-1234",
-      "severity": "high",
-      "status": "open",
-      "description": "Vulnerability description",
-      "packages": ["package1", "package2"],
-      "score": 8.5,
-      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
-      "publishedAt": "2023-01-01T00:00:00Z",
-      "updatedAt": "2023-01-02T00:00:00Z",
-      "metadata": {}
-    }
-  ],
-  "page": 1,
-  "totalPages": 10,
-  "total": 250
-}
+```bash
+# タスク一覧表示
+task --list
+
+# ビルド
+task build
+
+# テスト実行
+task test
+
+# コード品質チェック
+task check
 ```
 
-## ライブラリとしての使用
+### リージョン別エンドポイント
 
-独自のプロジェクトでGoライブラリとして使用することもできます：
-
-```go
-package main
-
-import (
-    "fmt"
-    "log"
-    
-    "github.com/kaz-under-the-bridge/sysdig-vuls-utils/pkg/sysdig"
-)
-
-func main() {
-    client := sysdig.NewClient("https://us2.app.sysdig.com", "your_api_token")
-    
-    // List vulnerabilities
-    vulns, err := client.ListVulnerabilities()
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    fmt.Printf("Found %d vulnerabilities\n", len(vulns))
-    
-    // Get specific vulnerability
-    vuln, err := client.GetVulnerability("CVE-2023-1234")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    fmt.Printf("Vulnerability: %s, Severity: %s\n", vuln.ID, vuln.Severity)
-}
-```
-
-### 利用可能なクライアントメソッド
-
-#### 基本メソッド
-- `ListVulnerabilities() ([]Vulnerability, error)` - すべての脆弱性を取得
-- `GetVulnerability(vulnID string) (*Vulnerability, error)` - 特定の脆弱性を取得
-- `UpdateVulnerability(vulnID string, updates map[string]interface{}) error` - 脆弱性を更新
-
-#### フィルタメソッド
-- `ListVulnerabilitiesByPackage(packageName string) ([]Vulnerability, error)` - パッケージでフィルタ
-- `ListVulnerabilitiesBySeverity(severity string) ([]Vulnerability, error)` - 重要度でフィルタ
-- `ListVulnerabilitiesWithFilters(filter VulnerabilityFilter) ([]Vulnerability, error)` - 複合フィルタ
-- `ListCriticalAndHighVulnerabilities() ([]Vulnerability, error)` - Critical/High、修正可能、エクスプロイト可能な脆弱性
-
-## エラー処理
-
-ツールは包括的なエラー処理を提供します：
-
-- **認証エラー**: 無効または不足しているAPIトークン
-- **ネットワークエラー**: 接続の問題やタイムアウト
-- **APIエラー**: 無効なリクエストやサーバーエラー
-- **Not Foundエラー**: 存在しない脆弱性をリクエストした場合
-
-## リージョン別エンドポイント
-
-Sysdigは複数のリージョンで運用されています。お使いのリージョンに適したエンドポイントを使用してください：
+お使いのリージョンに適したエンドポイントを`.devcontainer/.env`に設定してください：
 
 - **米国東部（デフォルト）**: `https://us2.app.sysdig.com`
 - **米国西部**: `https://us3.app.sysdig.com`
@@ -341,15 +325,15 @@ Sysdigは複数のリージョンで運用されています。お使いのリ�
 ## 変更履歴
 
 ### v2.0.0
-- 高度なフィルタリング機能追加（fixable、exploitable）
-- ローカルキャッシュ機能（SQLite/CSV）
-- AWSリソース追跡機能
-- 検出場所の判定機能（runtime、container、image repo）
-- 複数の出力形式（table、detailed、summary、aws）
-- コンテナ情報管理
+- Sysdig V2 API対応
+- パイプライン・ランタイムスキャン結果の並列取得
+- SQLiteキャッシュ機能
+- Runtime制限機能（asset.type別）
+- バッチ処理とレート制限対応
+- リスク受容管理機能
+- 自動レポート生成スクリプト
 
 ### v1.0.0
 - 初回リリース
-- 基本的な脆弱性の一覧表示、取得、更新機能
+- 基本的な脆弱性の一覧表示、取得機能
 - 設定ファイルと環境変数のサポート
-- CLIツールとGoライブラリ

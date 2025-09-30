@@ -17,74 +17,27 @@ type Client struct {
 	httpClient *http.Client
 }
 
-// Vulnerability represents a vulnerability from Sysdig API
+// Vulnerability represents a vulnerability from Sysdig V2 API
+// This is now based on the V2 API structure for consistency
 type Vulnerability struct {
-	ID               string                 `json:"id"`
-	CVE              string                 `json:"cve,omitempty"`
-	Severity         string                 `json:"severity"`
-	Status           string                 `json:"status"`
-	Description      string                 `json:"description"`
-	Packages         []string               `json:"packages,omitempty"`
-	Score            float64                `json:"score,omitempty"`
-	Vector           string                 `json:"vector,omitempty"`
-	PublishedAt      string                 `json:"publishedAt,omitempty"`
-	UpdatedAt        string                 `json:"updatedAt,omitempty"`
-	Metadata         map[string]interface{} `json:"metadata,omitempty"`
-	Fixable          bool                   `json:"fixable,omitempty"`
-	Exploitable      bool                   `json:"exploitable,omitempty"`
-	FixedVersion     string                 `json:"fixedVersion,omitempty"`
-	DetectionSources []DetectionSource      `json:"detectionSources,omitempty"`
-	AWSResources     []AWSResource          `json:"awsResources,omitempty"`
-	ContainerInfo    *ContainerInfo         `json:"containerInfo,omitempty"`
-}
-
-// DetectionSource represents where a vulnerability was detected
-type DetectionSource struct {
-	Type        string `json:"type"`        // "runtime", "container", "image_repo"
-	Location    string `json:"location"`
-	ClusterName string `json:"clusterName,omitempty"`
-	Namespace   string `json:"namespace,omitempty"`
-	PodName     string `json:"podName,omitempty"`
-}
-
-// AWSResource represents AWS resource information
-type AWSResource struct {
-	AccountID    string `json:"accountId"`
-	Region       string `json:"region,omitempty"`
-	ResourceType string `json:"resourceType"` // "EC2", "Lambda", "ECS", "EKS", "ECR"
-	ResourceID   string `json:"resourceId"`
-	ResourceName string `json:"resourceName,omitempty"`
-	InstanceID   string `json:"instanceId,omitempty"` // For EC2
-	ClusterArn   string `json:"clusterArn,omitempty"` // For ECS/EKS
-	FunctionArn  string `json:"functionArn,omitempty"` // For Lambda
-}
-
-// ContainerInfo represents container information
-type ContainerInfo struct {
-	ImageName   string `json:"imageName"`
-	ImageTag    string `json:"imageTag"`
-	ImageID     string `json:"imageId,omitempty"`
-	Registry    string `json:"registry,omitempty"`
-	ImageDigest string `json:"imageDigest,omitempty"`
-}
-
-// V2 API structures based on scanning/scanresults/v2 endpoint
-type VulnPackageResponseV2 struct {
-	Page PageInfoV2       `json:"page"`
-	Data []VulnPackageV2  `json:"data"`
-}
-
-type PageInfoV2 struct {
-	Returned int `json:"returned"`
-	Offset   int `json:"offset"`
-	Matched  int `json:"matched"`
-}
-
-type VulnPackageV2 struct {
 	ID             string     `json:"id"`
 	Vuln           VulnV2     `json:"vuln"`
 	Package        PackageV2  `json:"package"`
-	FixedInVersion string     `json:"fixedInVersion,omitempty"`
+	FixedInVersion *string    `json:"fixedInVersion"` // Use pointer to detect null values
+}
+
+
+// VulnerabilityResponse represents the V2 API response for vulnerability lists
+type VulnerabilityResponse struct {
+	Page PageInfo        `json:"page"`
+	Data []Vulnerability `json:"data"`
+}
+
+// PageInfo represents pagination information from V2 API
+type PageInfo struct {
+	Returned int `json:"returned"`
+	Offset   int `json:"offset"`
+	Matched  int `json:"matched"`
 }
 
 type VulnV2 struct {
@@ -98,6 +51,7 @@ type VulnV2 struct {
 	DisclosureDate    string                    `json:"disclosureDate"`
 	AcceptedRisks     []interface{}             `json:"acceptedRisks"`
 	ProvidersMetadata map[string]ProviderMeta   `json:"providersMetadata"`
+	Fixable           bool                      `json:"-"` // Computed based on FixedInVersion
 }
 
 type EpssScore struct {
@@ -136,23 +90,27 @@ type LayerV2 struct {
 	Command string `json:"command"`
 }
 
-// VulnerabilityResponse represents the API response for vulnerability lists
-type VulnerabilityResponse struct {
-	Data       []Vulnerability `json:"data"`
-	Page       int             `json:"page"`
-	TotalPages int             `json:"totalPages"`
-	Total      int             `json:"total"`
+// VulnPackageV2 represents the raw V2 API response structure
+type VulnPackageV2 struct {
+	ID             string     `json:"id"`
+	Vuln           VulnV2     `json:"vuln"`
+	Package        PackageV2  `json:"package"`
+	FixedInVersion string     `json:"fixedInVersion,omitempty"`
 }
 
-// VulnerabilityFilter represents filter options for listing vulnerabilities
+// VulnPackageResponseV2 represents the V2 API response
+type VulnPackageResponseV2 struct {
+	Page PageInfo        `json:"page"`
+	Data []VulnPackageV2 `json:"data"`
+}
+
+// VulnerabilityFilter represents filter options for V2 API
 type VulnerabilityFilter struct {
-	Severity     []string `json:"severity,omitempty"`     // "critical", "high", "medium", "low"
-	Fixable      *bool    `json:"fixable,omitempty"`
-	Exploitable  *bool    `json:"exploitable,omitempty"`
-	PackageName  string   `json:"packageName,omitempty"`
-	CVE          string   `json:"cve,omitempty"`
-	ResourceType string   `json:"resourceType,omitempty"` // "EC2", "Lambda", "ECS", "EKS", "ECR"
-	AccountID    string   `json:"accountId,omitempty"`
+	Severity    []string `json:"severity,omitempty"`    // 1=low, 2=medium, 3=high, 4=critical
+	Fixable     *bool    `json:"fixable,omitempty"`
+	Exploitable *bool    `json:"exploitable,omitempty"`
+	PackageName string   `json:"packageName,omitempty"`
+	CVE         string   `json:"cve,omitempty"`
 }
 
 // NewClient creates a new Sysdig API client
@@ -161,7 +119,7 @@ func NewClient(baseURL, apiToken string) *Client {
 		baseURL:  baseURL,
 		apiToken: apiToken,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 0, // タイムアウト無効化
 		},
 	}
 }
@@ -220,73 +178,28 @@ func (c *Client) makeRequest(method, endpoint string, body interface{}) (*http.R
 	return resp, nil
 }
 
-// ListVulnerabilities retrieves all vulnerabilities
-func (c *Client) ListVulnerabilities() ([]Vulnerability, error) {
-	resp, err := c.makeRequest("GET", "/vulnerabilities", nil)
+// ListVulnerabilities retrieves all vulnerabilities from a scan result using V2 API
+func (c *Client) ListVulnerabilities(resultID string) ([]Vulnerability, error) {
+	return c.GetAllVulnPackagesV2(resultID)
+}
+
+// GetVulnerability retrieves a specific vulnerability from a scan result by ID using V2 API
+func (c *Client) GetVulnerability(resultID, vulnID string) (*Vulnerability, error) {
+	allVulns, err := c.GetAllVulnPackagesV2(resultID)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	for _, vuln := range allVulns {
+		if vuln.ID == vulnID {
+			return &vuln, nil
+		}
 	}
 
-	var vulnResp VulnerabilityResponse
-	if err := json.NewDecoder(resp.Body).Decode(&vulnResp); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return vulnResp.Data, nil
+	return nil, fmt.Errorf("vulnerability not found: %s", vulnID)
 }
 
-// GetVulnerability retrieves a specific vulnerability by ID
-func (c *Client) GetVulnerability(vulnID string) (*Vulnerability, error) {
-	endpoint := fmt.Sprintf("/vulnerabilities/%s", vulnID)
-	resp, err := c.makeRequest("GET", endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("vulnerability not found: %s", vulnID)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var vuln Vulnerability
-	if err := json.NewDecoder(resp.Body).Decode(&vuln); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &vuln, nil
-}
-
-// UpdateVulnerability updates a vulnerability with new data
-func (c *Client) UpdateVulnerability(vulnID string, updates map[string]interface{}) error {
-	endpoint := fmt.Sprintf("/vulnerabilities/%s", vulnID)
-	resp, err := c.makeRequest("PATCH", endpoint, updates)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("vulnerability not found: %s", vulnID)
-	}
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
-}
+// UpdateVulnerability is not supported in V2 API - V2 API is read-only
 
 // ListVulnerabilitiesByPackage retrieves vulnerabilities for a specific package
 func (c *Client) ListVulnerabilitiesByPackage(packageName string) ([]Vulnerability, error) {
@@ -332,76 +245,57 @@ func (c *Client) ListVulnerabilitiesBySeverity(severity string) ([]Vulnerability
 	return vulnResp.Data, nil
 }
 
-// ListVulnerabilitiesWithFilters retrieves vulnerabilities with multiple filters
-func (c *Client) ListVulnerabilitiesWithFilters(filter VulnerabilityFilter) ([]Vulnerability, error) {
-	endpoint := "/vulnerabilities?"
-	params := []string{}
-
-	// Add severity filter
-	if len(filter.Severity) > 0 {
-		for _, sev := range filter.Severity {
-			params = append(params, fmt.Sprintf("severity=%s", sev))
-		}
-	}
-
-	// Add fixable filter
-	if filter.Fixable != nil {
-		params = append(params, fmt.Sprintf("fixable=%t", *filter.Fixable))
-	}
-
-	// Add exploitable filter
-	if filter.Exploitable != nil {
-		params = append(params, fmt.Sprintf("exploitable=%t", *filter.Exploitable))
-	}
-
-	// Add package name filter
-	if filter.PackageName != "" {
-		params = append(params, fmt.Sprintf("package=%s", filter.PackageName))
-	}
-
-	// Add CVE filter
-	if filter.CVE != "" {
-		params = append(params, fmt.Sprintf("cve=%s", filter.CVE))
-	}
-
-	// Add AWS resource type filter
-	if filter.ResourceType != "" {
-		params = append(params, fmt.Sprintf("resourceType=%s", filter.ResourceType))
-	}
-
-	// Add AWS account ID filter
-	if filter.AccountID != "" {
-		params = append(params, fmt.Sprintf("accountId=%s", filter.AccountID))
-	}
-
-	// Construct the final endpoint
-	if len(params) > 0 {
-		endpoint = fmt.Sprintf("/vulnerabilities?%s", joinParams(params))
-	} else {
-		endpoint = "/vulnerabilities"
-	}
-
-	resp, err := c.makeRequest("GET", endpoint, nil)
+// ListVulnerabilitiesWithFilters retrieves vulnerabilities with multiple filters using V2 API
+func (c *Client) ListVulnerabilitiesWithFilters(resultID string, filter VulnerabilityFilter) ([]Vulnerability, error) {
+	allVulns, err := c.GetAllVulnPackagesV2(resultID)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	var filtered []Vulnerability
+	for _, vuln := range allVulns {
+		// Apply severity filter
+		if len(filter.Severity) > 0 {
+			severityMatch := false
+			for _, sev := range filter.Severity {
+				if vuln.Vuln.SeverityString() == sev {
+					severityMatch = true
+					break
+				}
+			}
+			if !severityMatch {
+				continue
+			}
+		}
+
+		// Apply fixable filter
+		if filter.Fixable != nil && vuln.Vuln.Fixable != *filter.Fixable {
+			continue
+		}
+
+		// Apply exploitable filter
+		if filter.Exploitable != nil && vuln.Vuln.Exploitable != *filter.Exploitable {
+			continue
+		}
+
+		// Apply package name filter
+		if filter.PackageName != "" && !strings.Contains(vuln.Package.Name, filter.PackageName) {
+			continue
+		}
+
+		// Apply CVE filter
+		if filter.CVE != "" && !strings.Contains(vuln.Vuln.Name, filter.CVE) {
+			continue
+		}
+
+		filtered = append(filtered, vuln)
 	}
 
-	var vulnResp VulnerabilityResponse
-	if err := json.NewDecoder(resp.Body).Decode(&vulnResp); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return vulnResp.Data, nil
+	return filtered, nil
 }
 
 // ListCriticalAndHighVulnerabilities retrieves only critical and high severity vulnerabilities that are fixable and exploitable
-func (c *Client) ListCriticalAndHighVulnerabilities() ([]Vulnerability, error) {
+func (c *Client) ListCriticalAndHighVulnerabilities(resultID string) ([]Vulnerability, error) {
 	fixable := true
 	exploitable := true
 	filter := VulnerabilityFilter{
@@ -409,24 +303,19 @@ func (c *Client) ListCriticalAndHighVulnerabilities() ([]Vulnerability, error) {
 		Fixable:     &fixable,
 		Exploitable: &exploitable,
 	}
-	return c.ListVulnerabilitiesWithFilters(filter)
-}
-
-// joinParams joins URL parameters with &
-func joinParams(params []string) string {
-	result := ""
-	for i, param := range params {
-		if i > 0 {
-			result += "&"
-		}
-		result += param
-	}
-	return result
+	return c.ListVulnerabilitiesWithFilters(resultID, filter)
 }
 
 // ScanResultsResponse represents the scan results API response
 type ScanResultsResponse struct {
-	Data []ScanResult `json:"data"`
+	Data []ScanResult          `json:"data"`
+	Page ScanResultsPageInfo   `json:"page,omitempty"`
+}
+
+// ScanResultsPageInfo represents pagination information for scan results API
+type ScanResultsPageInfo struct {
+	Next  string `json:"next,omitempty"`
+	Total int    `json:"total,omitempty"`
 }
 
 // ScanResult represents a single scan result entry
@@ -446,54 +335,12 @@ type VulnSeverityCount struct {
 	Low      int `json:"low"`
 }
 
-// DetailedScanResponse represents the detailed scan result response
-type DetailedScanResponse struct {
-	Metadata        ScanMetadata           `json:"metadata"`
-	Vulnerabilities map[string]VulnDetail  `json:"vulnerabilities"`
-	Packages        map[string]PackageInfo `json:"packages"`
-	RiskAccepts     map[string]interface{} `json:"riskAccepts"`
-}
-
-// DetailedScanResponseV1Beta1 represents the v1beta1 detailed scan result response with enhanced fields
-type DetailedScanResponseV1Beta1 struct {
-	Metadata                     ScanMetadata            `json:"metadata"`
-	Vulnerabilities             map[string]VulnDetailV1Beta1 `json:"vulnerabilities"`
-	Packages                    map[string]PackageInfo  `json:"packages"`
-	RiskAccepts                 map[string]interface{}  `json:"riskAccepts"`
-	VulnTotalBySeverity         VulnSeverityCount       `json:"vulnTotalBySeverity"`
-	FixableVulnTotalBySeverity  VulnSeverityCount       `json:"fixableVulnTotalBySeverity"`
-	ExploitableVulnTotalBySeverity VulnSeverityCount    `json:"exploitableVulnTotalBySeverity,omitempty"`
-}
 
 // ScanMetadata contains scan metadata
 type ScanMetadata struct {
 	PullString string `json:"pullString,omitempty"`
 }
 
-// VulnDetail represents detailed vulnerability information
-type VulnDetail struct {
-	Name           string `json:"name"`
-	Severity       string `json:"severity"`
-	DisclosureDate string `json:"disclosureDate"`
-	PackageRef     string `json:"packageRef"`
-	Fixable        bool   `json:"fixable,omitempty"`
-	Exploitable    bool   `json:"exploitable,omitempty"`
-	FixedVersion   string `json:"fixedVersion,omitempty"`
-}
-
-// VulnDetailV1Beta1 represents detailed vulnerability information from v1beta1 endpoint
-type VulnDetailV1Beta1 struct {
-	Name           string `json:"name"`
-	Severity       string `json:"severity"`
-	DisclosureDate string `json:"disclosureDate"`
-	PackageRef     string `json:"packageRef"`
-	Fixable        bool   `json:"fixable,omitempty"`
-	Exploitable    bool   `json:"exploitable,omitempty"`
-	FixedVersion   string `json:"fixedVersion,omitempty"`
-	// Additional fields that might be in v1beta1
-	CVSS           float64 `json:"cvss,omitempty"`
-	Description    string  `json:"description,omitempty"`
-}
 
 // PackageInfo represents package information
 type PackageInfo struct {
@@ -503,8 +350,8 @@ type PackageInfo struct {
 
 // AcceptedRisksResponse represents the accepted risks API response
 type AcceptedRisksResponse struct {
-	Data []AcceptedRisk `json:"data"`
-	Page PageInfo       `json:"page"`
+	Data []AcceptedRisk            `json:"data"`
+	Page AcceptedRisksPageInfo     `json:"page"`
 }
 
 // AcceptedRisk represents an accepted risk entry
@@ -514,8 +361,22 @@ type AcceptedRisk struct {
 	Description    string `json:"description"`
 }
 
-// PageInfo represents pagination information
-type PageInfo struct {
+// VulnPkg represents a vulnerability-package pair from V2 API
+type VulnPkg struct {
+	ID             string    `json:"id"`
+	Vuln           VulnV2    `json:"vuln"`
+	Package        PackageV2 `json:"package"`
+	FixedInVersion string    `json:"fixedInVersion,omitempty"`
+}
+
+// VulnPkgResponse represents the API response for vulnerability packages
+type VulnPkgResponse struct {
+	Page PageInfo  `json:"page"`
+	Data []VulnPkg `json:"data"`
+}
+
+// AcceptedRisksPageInfo represents pagination information for accepted risks API
+type AcceptedRisksPageInfo struct {
 	Next string `json:"next,omitempty"`
 }
 
@@ -524,33 +385,77 @@ func (c *Client) ListPipelineResults() ([]ScanResult, error) {
 	return c.ListPipelineResultsWithDays(7) // デフォルト7日
 }
 
-// ListPipelineResultsWithDays retrieves pipeline scan results for specified days
+// ListPipelineResultsWithDays retrieves pipeline scan results for specified days using pagination and client-side filtering
 func (c *Client) ListPipelineResultsWithDays(days int) ([]ScanResult, error) {
-	// Calculate date range
-	endTime := time.Now()
-	startTime := endTime.AddDate(0, 0, -days)
+	cutoffTime := time.Now().AddDate(0, 0, -days)
+	allResults := []ScanResult{}
+	cursor := ""
+	limit := 100 // 小さめのページサイズで開始
+	totalProcessed := 0
+	maxPages := 200 // 期間フィルタリングがあるため制限を緩和
+	pageCount := 0
 
-	endpoint := fmt.Sprintf("/pipeline-results?from=%s&to=%s",
-		startTime.Format("2006-01-02T15:04:05Z"),
-		endTime.Format("2006-01-02T15:04:05Z"))
+	fmt.Printf("Starting pipeline cursor pagination fetch. Cutoff time: %s\n", cutoffTime.Format(time.RFC3339))
 
-	resp, err := c.makeRequest("GET", endpoint, nil)
-	if err != nil {
-		return nil, err
+	for pageCount = 0; pageCount < maxPages; pageCount++ {
+		fmt.Printf("Fetching page %d: cursor=%s, limit=%d\n", pageCount, cursor, limit)
+
+		// cursorでページングデータ取得
+		results, nextCursor, err := c.fetchPipelineResultsWithPagination(cursor, limit)
+		if err != nil {
+			return nil, err
+		}
+
+		totalProcessed += len(results)
+		fmt.Printf("Retrieved %d records (total processed: %d)\n", len(results), totalProcessed)
+
+		// 期間内データのみフィルタリング
+		validResults := []ScanResult{}
+		oldDataCount := 0
+
+		for i, result := range results {
+			createdAt, err := time.Parse(time.RFC3339, result.CreatedAt)
+			if err != nil {
+				fmt.Printf("Warning: Failed to parse CreatedAt '%s': %v\n", result.CreatedAt, err)
+				continue
+			}
+
+			// 最初の3レコードだけデバッグ出力
+			if i < 3 {
+				fmt.Printf("Pipeline Record %d: ID=%s, CreatedAt=%s, Cutoff=%s, Valid=%t\n", i, result.ResultID,
+					createdAt.Format(time.RFC3339), cutoffTime.Format(time.RFC3339), createdAt.After(cutoffTime))
+			}
+
+			if createdAt.After(cutoffTime) {
+				validResults = append(validResults, result)
+			} else {
+				oldDataCount++
+			}
+		}
+
+		allResults = append(allResults, validResults...)
+		fmt.Printf("After filtering: %d valid, %d old records (total valid: %d)\n", len(validResults), oldDataCount, len(allResults))
+
+		// 全データが期間外の場合は終了
+		allOldData := oldDataCount == len(results)
+		if allOldData && len(results) > 0 {
+			fmt.Println("All pipeline data in this page is older than cutoff time. Stopping pagination.")
+			break
+		}
+		if nextCursor == "" {
+			fmt.Println("No more pipeline data available. Stopping pagination.")
+			break
+		}
+
+		cursor = nextCursor
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	if pageCount >= maxPages {
+		fmt.Printf("Reached maximum pages (%d). Consider increasing maxPages or refining query.\n", maxPages)
 	}
 
-	var scanResp ScanResultsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&scanResp); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return scanResp.Data, nil
+	fmt.Printf("Pipeline pagination complete. Total valid results: %d\n", len(allResults))
+	return allResults, nil
 }
 
 // ListRuntimeResults retrieves all runtime scan results
@@ -558,38 +463,218 @@ func (c *Client) ListRuntimeResults() ([]ScanResult, error) {
 	return c.ListRuntimeResultsWithDays(7) // デフォルト7日
 }
 
-// ListRuntimeResultsWithDays retrieves runtime scan results for specified days
-func (c *Client) ListRuntimeResultsWithDays(days int) ([]ScanResult, error) {
-	// Calculate date range
-	endTime := time.Now()
-	startTime := endTime.AddDate(0, 0, -days)
+// ListRuntimeResultsWithLimits retrieves runtime scan results with asset type specific limits
+func (c *Client) ListRuntimeResultsWithLimits(days int, workloadLimit, hostLimit, containerLimit int) ([]ScanResult, error) {
+	allResults := []ScanResult{}
 
-	endpoint := fmt.Sprintf("/runtime-results?from=%s&to=%s",
-		startTime.Format("2006-01-02T15:04:05Z"),
-		endTime.Format("2006-01-02T15:04:05Z"))
+	// Asset types to process
+	assetTypes := []struct {
+		name  string
+		limit int
+	}{
+		{"workload", workloadLimit},
+		{"host", hostLimit},
+		{"container", containerLimit},
+	}
+
+	for _, assetType := range assetTypes {
+		if assetType.limit < 0 {
+			continue // Skip negative limits
+		}
+
+		fmt.Printf("Fetching %s results (limit: %d)...\n", assetType.name, assetType.limit)
+
+		results, err := c.fetchRuntimeResultsByAssetType(assetType.name, assetType.limit)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch %s results: %w", assetType.name, err)
+		}
+
+		fmt.Printf("Retrieved %d %s results\n", len(results), assetType.name)
+		allResults = append(allResults, results...)
+	}
+
+	fmt.Printf("Total runtime results: %d\n", len(allResults))
+	return allResults, nil
+}
+
+// ListRuntimeResultsWithDays retrieves runtime scan results for specified days using pagination and client-side filtering
+func (c *Client) ListRuntimeResultsWithDays(days int) ([]ScanResult, error) {
+	cutoffTime := time.Now().AddDate(0, 0, -days)
+	allResults := []ScanResult{}
+	cursor := ""
+	limit := 100 // 小さめのページサイズで開始
+	totalProcessed := 0
+	maxPages := 50 // 安全のため最大ページ数制限
+	pageCount := 0
+
+	fmt.Printf("Starting runtime cursor pagination fetch. Cutoff time: %s\n", cutoffTime.Format(time.RFC3339))
+
+	for pageCount = 0; pageCount < maxPages; pageCount++ {
+		fmt.Printf("Fetching runtime page %d: cursor=%s, limit=%d\n", pageCount, cursor, limit)
+
+		// cursorでページングデータ取得
+		results, nextCursor, err := c.fetchRuntimeResultsWithPagination(cursor, limit)
+		if err != nil {
+			return nil, err
+		}
+
+		totalProcessed += len(results)
+		fmt.Printf("Retrieved %d runtime records (total processed: %d)\n", len(results), totalProcessed)
+
+		// Runtime APIにはcreatedAtフィールドがないため、全データを有効とする
+		validResults := results
+
+		// デバッグ出力：最初の3レコード
+		for i, result := range results {
+			if i < 3 {
+				fmt.Printf("Runtime Record %d: resultId=%s (no createdAt field)\n", i, result.ResultID)
+			}
+		}
+
+		allResults = append(allResults, validResults...)
+		fmt.Printf("After runtime filtering: %d valid records (total valid: %d)\n", len(validResults), len(allResults))
+
+		// Runtime APIは期間フィルタリングなし、カーソルの終了のみチェック
+		if nextCursor == "" {
+			fmt.Println("No more runtime data available. Stopping pagination.")
+			break
+		}
+
+		cursor = nextCursor
+	}
+
+	if pageCount >= maxPages {
+		fmt.Printf("Reached maximum pages (%d). Consider increasing maxPages or refining query.\n", maxPages)
+	}
+
+	fmt.Printf("Runtime pagination complete. Total valid results: %d\n", len(allResults))
+	return allResults, nil
+}
+
+// fetchPipelineResultsWithPagination retrieves a single page of pipeline results using cursor
+func (c *Client) fetchPipelineResultsWithPagination(cursor string, limit int) ([]ScanResult, string, error) {
+	var endpoint string
+	if cursor == "" {
+		endpoint = fmt.Sprintf("/pipeline-results?limit=%d", limit)
+	} else {
+		endpoint = fmt.Sprintf("/pipeline-results?limit=%d&cursor=%s", limit, cursor)
+	}
 
 	resp, err := c.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var scanResp ScanResultsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&scanResp); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+		return nil, "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return scanResp.Data, nil
+	// 次のカーソルを返す（なければ空文字列）
+	nextCursor := scanResp.Page.Next
+
+	return scanResp.Data, nextCursor, nil
 }
 
-// GetScanResultDetails retrieves detailed vulnerability information for a specific scan result
-func (c *Client) GetScanResultDetails(resultID string) (*DetailedScanResponse, error) {
-	endpoint := fmt.Sprintf("/results/%s", resultID)
+// fetchRuntimeResultsWithPagination retrieves a single page of runtime results using cursor
+func (c *Client) fetchRuntimeResultsWithPagination(cursor string, limit int) ([]ScanResult, string, error) {
+	var endpoint string
+	if cursor == "" {
+		endpoint = fmt.Sprintf("/runtime-results?limit=%d", limit)
+	} else {
+		endpoint = fmt.Sprintf("/runtime-results?limit=%d&cursor=%s", limit, cursor)
+	}
+
+	resp, err := c.makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var scanResp ScanResultsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&scanResp); err != nil {
+		return nil, "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// 次のカーソルを返す（なければ空文字列）
+	nextCursor := scanResp.Page.Next
+
+	return scanResp.Data, nextCursor, nil
+}
+
+// fetchRuntimeResultsByAssetType retrieves runtime results filtered by asset type with limit
+func (c *Client) fetchRuntimeResultsByAssetType(assetType string, limit int) ([]ScanResult, error) {
+	if limit == 0 {
+		// 0 means unlimited, use large number for practical purposes
+		limit = 10000
+	}
+
+	allResults := []ScanResult{}
+	cursor := ""
+	pageSize := 100
+	totalProcessed := 0
+
+	for totalProcessed < limit {
+		// Calculate remaining items needed
+		remaining := limit - totalProcessed
+		currentPageSize := pageSize
+		if remaining < pageSize {
+			currentPageSize = remaining
+		}
+
+		// Build endpoint with asset type filter
+		var endpoint string
+		filterParam := fmt.Sprintf("asset.type%%3D%%22%s%%22", assetType)
+		if cursor == "" {
+			endpoint = fmt.Sprintf("/runtime-results?limit=%d&filter=%s", currentPageSize, filterParam)
+		} else {
+			endpoint = fmt.Sprintf("/runtime-results?limit=%d&cursor=%s&filter=%s", currentPageSize, cursor, filterParam)
+		}
+
+		resp, err := c.makeRequest("GET", endpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var scanResp ScanResultsResponse
+		if err := json.NewDecoder(resp.Body).Decode(&scanResp); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+
+		allResults = append(allResults, scanResp.Data...)
+		totalProcessed += len(scanResp.Data)
+
+		// Check if we have more data or reached the limit
+		if scanResp.Page.Next == "" || len(scanResp.Data) == 0 {
+			break
+		}
+
+		cursor = scanResp.Page.Next
+	}
+
+	return allResults, nil
+}
+
+// GetScanResultVulnerabilities retrieves vulnerabilities for a specific scan result using V2 API
+func (c *Client) GetScanResultVulnerabilities(resultID string) ([]Vulnerability, error) {
+	endpoint := fmt.Sprintf("/api/scanning/scanresults/v2/results/%s/vulnPkgs", resultID)
 	resp, err := c.makeRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -605,57 +690,42 @@ func (c *Client) GetScanResultDetails(resultID string) (*DetailedScanResponse, e
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var detailResp DetailedScanResponse
-	if err := json.NewDecoder(resp.Body).Decode(&detailResp); err != nil {
+	var vulnResponse VulnPkgResponse
+	if err := json.NewDecoder(resp.Body).Decode(&vulnResponse); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return &detailResp, nil
-}
+	// Convert VulnPkg to Vulnerability for compatibility
+	vulnerabilities := make([]Vulnerability, 0, len(vulnResponse.Data))
+	for _, vulnPkg := range vulnResponse.Data {
+		vuln := Vulnerability{
+			ID: vulnPkg.ID,
+			Vuln: VulnV2{
+				Name:           vulnPkg.Vuln.Name,
+				Severity:       vulnPkg.Vuln.Severity,
+				CvssScore:      vulnPkg.Vuln.CvssScore,
+				DisclosureDate: vulnPkg.Vuln.DisclosureDate,
+				Exploitable:    vulnPkg.Vuln.Exploitable,
+			},
+			Package: PackageV2{
+				Name:    vulnPkg.Package.Name,
+				Version: vulnPkg.Package.Version,
+				Type:    vulnPkg.Package.Type,
+			},
+		}
 
-// GetScanResultDetailsV1Beta1 retrieves detailed vulnerability information using v1beta1 endpoint with enhanced fields
-func (c *Client) GetScanResultDetailsV1Beta1(resultID string) (*DetailedScanResponseV1Beta1, error) {
-	// Use v1beta1 endpoint directly
-	apiURL := strings.Replace(c.baseURL, "us2.app.sysdig.com", "api.us2.sysdig.com", 1)
-	if strings.Contains(c.baseURL, "localhost") {
-		apiURL = c.baseURL
+		// Set FixedInVersion and compute Fixable
+		if vulnPkg.FixedInVersion != "" {
+			vuln.FixedInVersion = &vulnPkg.FixedInVersion
+			vuln.Vuln.Fixable = true
+		} else {
+			vuln.Vuln.Fixable = false
+		}
+
+		vulnerabilities = append(vulnerabilities, vuln)
 	}
 
-	endpoint := fmt.Sprintf("/results/%s", resultID)
-	url := fmt.Sprintf("%s/secure/vulnerability/v1beta1%s", apiURL, endpoint)
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-	req.Header.Set("Content-Type", "application/json;charset=UTF-8")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "sysdig-vuls-utils/2.0.0")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("scan result not found: %s", resultID)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var detailResp DetailedScanResponseV1Beta1
-	if err := json.NewDecoder(resp.Body).Decode(&detailResp); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &detailResp, nil
+	return vulnerabilities, nil
 }
 
 // ListAcceptedRisks retrieves all accepted risks with pagination
@@ -759,8 +829,8 @@ func (c *Client) GetVulnPackagesV2(resultID string, limit int, offset int, sortB
 }
 
 // GetAllVulnPackagesV2 retrieves all vulnerability packages for a scan result with pagination
-func (c *Client) GetAllVulnPackagesV2(resultID string) ([]VulnPackageV2, error) {
-	var allVulnPackages []VulnPackageV2
+func (c *Client) GetAllVulnPackagesV2(resultID string) ([]Vulnerability, error) {
+	var allVulns []Vulnerability
 	limit := 100
 	offset := 0
 
@@ -770,7 +840,25 @@ func (c *Client) GetAllVulnPackagesV2(resultID string) ([]VulnPackageV2, error) 
 			return nil, fmt.Errorf("failed to get vulnerability packages at offset %d: %w", offset, err)
 		}
 
-		allVulnPackages = append(allVulnPackages, resp.Data...)
+		// Convert VulnPackageV2 to Vulnerability and set fixable based on fixedInVersion
+		for _, vulnPkg := range resp.Data {
+			vuln := Vulnerability{
+				ID:             vulnPkg.ID,
+				Vuln:           vulnPkg.Vuln,
+				Package:        vulnPkg.Package,
+				FixedInVersion: nil,
+			}
+
+			// Set FixedInVersion and compute Fixable
+			if vulnPkg.FixedInVersion != "" {
+				vuln.FixedInVersion = &vulnPkg.FixedInVersion
+				vuln.Vuln.Fixable = true
+			} else {
+				vuln.Vuln.Fixable = false
+			}
+
+			allVulns = append(allVulns, vuln)
+		}
 
 		// Check if we've retrieved all data
 		if len(resp.Data) < limit || offset + len(resp.Data) >= resp.Page.Matched {
@@ -780,7 +868,7 @@ func (c *Client) GetAllVulnPackagesV2(resultID string) ([]VulnPackageV2, error) 
 		offset += limit
 	}
 
-	return allVulnPackages, nil
+	return allVulns, nil
 }
 
 // Helper function to convert severity int to string

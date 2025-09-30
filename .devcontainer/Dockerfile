@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     jq \
     vim \
     bash-completion \
+    sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 # golangci-lintのインストール（最新版）
@@ -18,6 +19,9 @@ RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/i
 # 追加のGo開発用ツールのインストール（基本的なツールは既にインストール済み）
 RUN go install github.com/cweill/gotests/gotests@latest \
     && go install honnef.co/go/tools/cmd/staticcheck@latest
+
+# go-taskのインストール
+RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
 # GitHub CLIは既にベースイメージに含まれているため、追加インストール不要
 # ただし最新版にアップデート
@@ -38,6 +42,10 @@ RUN npm install -g @anthropic-ai/claude-code
 
 # vsodeユーザー用エイリアス設定（Microsoft Dev Containersイメージにはvsocdeユーザーが存在）
 USER vscode
+
+# Go modulesキャッシュディレクトリの権限設定
+RUN sudo mkdir -p /go/pkg/mod && sudo chown -R vscode:vscode /go
+
 RUN echo "alias ll='ls -la'" >> ~/.bashrc \
     && echo "alias gs='git status'" >> ~/.bashrc \
     && echo "alias gd='git diff'" >> ~/.bashrc
@@ -45,7 +53,9 @@ RUN echo "alias ll='ls -la'" >> ~/.bashrc \
 # Go環境変数設定
 ENV GO111MODULE=on \
     GOPROXY=https://proxy.golang.org,direct \
-    CGO_ENABLED=0
+    CGO_ENABLED=0 \
+    GOPATH=/go \
+    GOMODCACHE=/go/pkg/mod
 
 # ワークスペースのGoモジュールキャッシュ用ボリュームマウントポイント
 VOLUME ["/go/pkg/mod"]
