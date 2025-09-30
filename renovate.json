@@ -1,0 +1,69 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "timezone": "Asia/Tokyo",
+  "schedule": [
+    "before 10am on monday"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "assignees": [
+    "kaz-under-the-bridge"
+  ],
+  "reviewers": [
+    "kaz-under-the-bridge"
+  ],
+  "packageRules": [
+    {
+      "description": "Go dependencies",
+      "matchManagers": ["gomod"],
+      "groupName": "Go dependencies",
+      "schedule": [
+        "before 10am on monday"
+      ]
+    },
+    {
+      "description": "DevContainer and Node.js dependencies",
+      "matchFileNames": [".devcontainer/**"],
+      "groupName": "DevContainer dependencies",
+      "schedule": [
+        "before 10am on the first day of the month"
+      ]
+    },
+    {
+      "description": "GitHub Actions",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions",
+      "schedule": [
+        "before 10am on monday"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "labels": [
+      "security",
+      "dependencies"
+    ],
+    "assignees": [
+      "kaz-under-the-bridge"
+    ],
+    "schedule": [
+      "at any time"
+    ]
+  },
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "commitMessagePrefix": "chore(deps):",
+  "commitMessageAction": "update",
+  "commitMessageExtra": "to {{newVersion}}",
+  "semanticCommits": "enabled",
+  "postUpdateOptions": [
+    "gomodTidy"
+  ]
+}
