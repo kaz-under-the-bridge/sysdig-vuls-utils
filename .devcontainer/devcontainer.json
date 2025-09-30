@@ -19,6 +19,7 @@
   "mounts": [
     "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
     "source=go-modules,target=/go/pkg/mod,type=volume",
+    // ホスト側のclaude code定義を再利用可能にしています。ただし、~/.claude.jsonは競合するためマウントしていません。
     "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,consistency=cached"
@@ -94,9 +95,9 @@
     }
   },
   // コンテナ作成後に実行するコマンド
-  "postCreateCommand": "go mod download && make deps && gh --version && node --version && npm --version && (claude --version || echo 'Claude Code CLI not available')",
+  "postCreateCommand": "cd /workspace && go mod download && make deps && gh --version && node --version && npm --version && (claude --version || echo 'Claude Code CLI not available') && task --version",
   // 開始時のコマンド
-  "postStartCommand": "git config --global --add safe.directory /workspace",
+  //"postStartCommand": "git config --global --add safe.directory /workspace || true",
   // リモートユーザー
   "remoteUser": "vscode",
   // ワークスペースフォルダ

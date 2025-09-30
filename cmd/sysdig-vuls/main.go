@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kaz-under-the-bridge/sysdig-vuls-utils/pkg/cache"
 	"github.com/kaz-under-the-bridge/sysdig-vuls-utils/pkg/config"
@@ -37,6 +38,11 @@ func main() {
 		createAcceptance   = flag.String("create-acceptance", "", "Create acceptance for CVE (comma-separated list)")
 		expirationDays     = flag.Int("expiration-days", 30, "Expiration days for risk acceptance (default 30)")
 		daysPeriod         = flag.Int("days", 7, "Number of days to retrieve results from (default 7, max 14)")
+	batchSize          = flag.Int("batch-size", 2, "Number of concurrent API requests (default 2)")
+	apiDelay           = flag.Int("api-delay", 3, "Delay in seconds between API batches (default 3)")
+	runtimeWorkloadLimit = flag.Int("runtime-workload-limit", 300, "Maximum number of workload runtime results to retrieve (default 300, 0=unlimited)")
+	runtimeHostLimit     = flag.Int("runtime-host-limit", 0, "Maximum number of host runtime results to retrieve (default 0=unlimited)")
+	runtimeContainerLimit = flag.Int("runtime-container-limit", 0, "Maximum number of container runtime results to retrieve (default 0=unlimited)")
 	)
 	flag.Parse()
 
@@ -72,31 +78,38 @@ func main() {
 	// Execute command
 	switch *command {
 	case "list":
-		err = listVulnerabilities(client, *outputFormat)
+		if *resultID == "" {
+			log.Fatal("Result ID is required for list command (V2 API)")
+		}
+		err = listVulnerabilities(client, *resultID, *outputFormat)
 	case "filter":
-		err = filterVulnerabilities(client, *severity, *fixableOnly, *exploitable, *outputFormat)
+		if *resultID == "" {
+			log.Fatal("Result ID is required for filter command (V2 API)")
+		}
+		err = filterVulnerabilities(client, *resultID, *severity, *fixableOnly, *exploitable, *outputFormat)
 	case "get":
-		if *vulnID == "" {
-			log.Fatal("Vulnerability ID is required for get command")
+		if *vulnID == "" || *resultID == "" {
+			log.Fatal("Both Vulnerability ID and Result ID are required for get command (V2 API)")
 		}
-		err = getVulnerability(client, *vulnID)
-	case "update":
-		if *vulnID == "" {
-			log.Fatal("Vulnerability ID is required for update command")
-		}
-		err = updateVulnerability(client, *vulnID)
+		err = getVulnerability(client, *resultID, *vulnID)
 	case "summary":
-		err = showSummary(client)
+		if *resultID == "" {
+			log.Fatal("Result ID is required for summary command (V2 API)")
+		}
+		err = showSummary(client, *resultID)
 	case "cache":
-		err = cacheVulnerabilities(client, *cacheType, *cachePath, *severity, *fixableOnly, *exploitable)
+		if *resultID == "" {
+			log.Fatal("Result ID is required for cache command (V2 API)")
+		}
+		err = cacheVulnerabilities(client, *resultID, *cacheType, *cachePath, *severity, *fixableOnly, *exploitable)
 	case "pipeline":
 		err = showPipelineResults(client, *outputFormat, *daysPeriod)
 	case "runtime":
-		err = showRuntimeResults(client, *outputFormat, *daysPeriod)
+		err = showRuntimeResults(client, *outputFormat, *daysPeriod, *runtimeWorkloadLimit, *runtimeHostLimit, *runtimeContainerLimit)
 	case "pipeline-cache":
-		err = cachePipelineResults(client, *cachePath, *daysPeriod)
+		err = cachePipelineResults(client, *cachePath, *daysPeriod, *batchSize, *apiDelay)
 	case "runtime-cache":
-		err = cacheRuntimeResults(client, *cachePath, *daysPeriod)
+		err = cacheRuntimeResults(client, *cachePath, *daysPeriod, *batchSize, *apiDelay, *runtimeWorkloadLimit, *runtimeHostLimit, *runtimeContainerLimit)
 	case "scan-details":
 		if *resultID == "" {
 			log.Fatal("Result ID is required for scan-details command")
@@ -121,7 +134,7 @@ func main() {
 func printUsage() {
 	fmt.Printf(`sysdig-vuls-utils version %s
 
-A tool for managing Sysdig vulnerability data via API.
+A tool for managing Sysdig vulnerability data via V2 API.
 
 Usage:
   sysdig-vuls [options]
@@ -134,20 +147,21 @@ Options:
   -url string
         Sysdig API base URL (default "https://us2.app.sysdig.com")
   -command string
-        Command to execute: list, get, update (default "list")
+        Command to execute: list, get, filter, summary, cache (default "list")
+  -result-id string
+        Scan Result ID (required for most commands in V2 API)
   -id string
-        Vulnerability ID (required for get/update commands)
+        Vulnerability ID (required for get command)
   -help
         Show this help message
   -version
         Show version information
 
 Commands:
-  list    - List all vulnerabilities
-  filter  - List vulnerabilities with filters
+  list    - List all vulnerabilities for a scan result
+  filter  - List vulnerabilities with filters for a scan result
   get     - Get details of a specific vulnerability
-  update  - Update vulnerability status/information
-  summary - Show vulnerability summary
+  summary - Show vulnerability summary for a scan result
   cache   - Cache vulnerabilities locally (SQLite or CSV)
 
 Filter Options:
@@ -169,25 +183,28 @@ Cache Options:
         Cache type: sqlite or csv (default "sqlite")
 
 Examples:
-  # List all vulnerabilities
-  sysdig-vuls -token YOUR_TOKEN -command list
+  # List all vulnerabilities for a scan result
+  sysdig-vuls -token YOUR_TOKEN -command list -result-id SCAN_RESULT_ID
 
   # Get specific vulnerability
-  sysdig-vuls -token YOUR_TOKEN -command get -id CVE-2023-1234
+  sysdig-vuls -token YOUR_TOKEN -command get -result-id SCAN_RESULT_ID -id VULN_ID
 
-  # Update vulnerability status
-  sysdig-vuls -token YOUR_TOKEN -command update -id CVE-2023-1234
+  # Filter fixable critical vulnerabilities
+  sysdig-vuls -token YOUR_TOKEN -command filter -result-id SCAN_RESULT_ID -severity critical -fixable
 
 Environment Variables:
   SYSDIG_API_TOKEN  - API token for authentication
   SYSDIG_API_URL    - Base URL for Sysdig API
 
+Note: This tool now uses Sysdig V2 API and automatically handles fixedInVersion null values
+      to determine fixable status.
+
 `, version)
 }
 
-func listVulnerabilities(client *sysdig.Client, outputFormat string) error {
-	fmt.Println("Listing vulnerabilities...")
-	vulnerabilities, err := client.ListVulnerabilities()
+func listVulnerabilities(client *sysdig.Client, resultID, outputFormat string) error {
+	fmt.Printf("Listing vulnerabilities for result ID: %s...\n", resultID)
+	vulnerabilities, err := client.ListVulnerabilities(resultID)
 	if err != nil {
 		return fmt.Errorf("failed to list vulnerabilities: %w", err)
 	}
@@ -206,41 +223,32 @@ func listVulnerabilities(client *sysdig.Client, outputFormat string) error {
 	}
 }
 
-func getVulnerability(client *sysdig.Client, vulnID string) error {
-	fmt.Printf("Getting vulnerability: %s\n", vulnID)
-	vuln, err := client.GetVulnerability(vulnID)
+func getVulnerability(client *sysdig.Client, resultID, vulnID string) error {
+	fmt.Printf("Getting vulnerability: %s from result: %s\n", vulnID, resultID)
+	vuln, err := client.GetVulnerability(resultID, vulnID)
 	if err != nil {
 		return fmt.Errorf("failed to get vulnerability: %w", err)
 	}
 
 	fmt.Printf("Vulnerability Details:\n")
 	fmt.Printf("  ID: %s\n", vuln.ID)
-	fmt.Printf("  Severity: %s\n", vuln.Severity)
-	fmt.Printf("  Status: %s\n", vuln.Status)
-	fmt.Printf("  Description: %s\n", vuln.Description)
-	if len(vuln.Packages) > 0 {
-		fmt.Printf("  Affected Packages: %v\n", vuln.Packages)
+	fmt.Printf("  Name: %s\n", vuln.Vuln.Name)
+	fmt.Printf("  Severity: %s\n", vuln.Vuln.SeverityString())
+	fmt.Printf("  CVSS Score: %.1f\n", vuln.Vuln.CvssScore)
+	fmt.Printf("  Fixable: %t\n", vuln.Vuln.Fixable)
+	fmt.Printf("  Exploitable: %t\n", vuln.Vuln.Exploitable)
+	if vuln.FixedInVersion != nil {
+		fmt.Printf("  Fixed in Version: %s\n", *vuln.FixedInVersion)
 	}
+	fmt.Printf("  Package: %s v%s\n", vuln.Package.Name, vuln.Package.Version)
 	return nil
 }
 
-func updateVulnerability(client *sysdig.Client, vulnID string) error {
-	fmt.Printf("Updating vulnerability: %s\n", vulnID)
-	// For now, just demonstrate the API call structure
-	// In a real implementation, you would gather update parameters
-	err := client.UpdateVulnerability(vulnID, map[string]interface{}{
-		"status": "reviewed",
-	})
-	if err != nil {
-		return fmt.Errorf("failed to update vulnerability: %w", err)
-	}
+// updateVulnerability is not supported in V2 API
+// V2 API is read-only for vulnerability data
 
-	fmt.Printf("Successfully updated vulnerability: %s\n", vulnID)
-	return nil
-}
-
-func filterVulnerabilities(client *sysdig.Client, severity string, fixableOnly, exploitable bool, outputFormat string) error {
-	fmt.Println("Filtering vulnerabilities...")
+func filterVulnerabilities(client *sysdig.Client, resultID, severity string, fixableOnly, exploitable bool, outputFormat string) error {
+	fmt.Printf("Filtering vulnerabilities for result ID: %s...\n", resultID)
 
 	// Build filter
 	filter := sysdig.VulnerabilityFilter{}
@@ -266,9 +274,9 @@ func filterVulnerabilities(client *sysdig.Client, severity string, fixableOnly, 
 
 	if len(filter.Severity) == 0 && fixableOnly && exploitable {
 		// Use the convenience method for common use case
-		vulnerabilities, err = client.ListCriticalAndHighVulnerabilities()
+		vulnerabilities, err = client.ListCriticalAndHighVulnerabilities(resultID)
 	} else {
-		vulnerabilities, err = client.ListVulnerabilitiesWithFilters(filter)
+		vulnerabilities, err = client.ListVulnerabilitiesWithFilters(resultID, filter)
 	}
 
 	if err != nil {
@@ -289,9 +297,9 @@ func filterVulnerabilities(client *sysdig.Client, severity string, fixableOnly, 
 	}
 }
 
-func showSummary(client *sysdig.Client) error {
-	fmt.Println("Getting vulnerability summary...")
-	vulnerabilities, err := client.ListVulnerabilities()
+func showSummary(client *sysdig.Client, resultID string) error {
+	fmt.Printf("Getting vulnerability summary for result ID: %s...\n", resultID)
+	vulnerabilities, err := client.ListVulnerabilities(resultID)
 	if err != nil {
 		return fmt.Errorf("failed to list vulnerabilities: %w", err)
 	}
@@ -300,8 +308,8 @@ func showSummary(client *sysdig.Client) error {
 	return tw.WriteSummary(vulnerabilities)
 }
 
-func cacheVulnerabilities(client *sysdig.Client, cacheTypeStr, cachePath, severity string, fixableOnly, exploitable bool) error {
-	fmt.Println("Caching vulnerabilities...")
+func cacheVulnerabilities(client *sysdig.Client, resultID, cacheTypeStr, cachePath, severity string, fixableOnly, exploitable bool) error {
+	fmt.Printf("Caching vulnerabilities for result ID: %s...\n", resultID)
 
 	// Build filter
 	filter := sysdig.VulnerabilityFilter{}
@@ -326,9 +334,9 @@ func cacheVulnerabilities(client *sysdig.Client, cacheTypeStr, cachePath, severi
 	var err error
 
 	if len(filter.Severity) > 0 || fixableOnly || exploitable {
-		vulnerabilities, err = client.ListVulnerabilitiesWithFilters(filter)
+		vulnerabilities, err = client.ListVulnerabilitiesWithFilters(resultID, filter)
 	} else {
-		vulnerabilities, err = client.ListVulnerabilities()
+		vulnerabilities, err = client.ListVulnerabilities(resultID)
 	}
 
 	if err != nil {
@@ -416,9 +424,9 @@ func showPipelineResults(client *sysdig.Client, outputFormat string, days int) e
 	return nil
 }
 
-func showRuntimeResults(client *sysdig.Client, outputFormat string, days int) error {
-	fmt.Printf("Getting runtime scan results (last %d days)...\n", days)
-	results, err := client.ListRuntimeResultsWithDays(days)
+func showRuntimeResults(client *sysdig.Client, outputFormat string, days int, workloadLimit, hostLimit, containerLimit int) error {
+	fmt.Printf("Getting runtime scan results with limits (workload:%d, host:%d, container:%d)...\n", workloadLimit, hostLimit, containerLimit)
+	results, err := client.ListRuntimeResultsWithLimits(days, workloadLimit, hostLimit, containerLimit)
 	if err != nil {
 		return fmt.Errorf("failed to list runtime results: %w", err)
 	}
@@ -465,13 +473,8 @@ func showRuntimeResults(client *sysdig.Client, outputFormat string, days int) er
 		}
 		nameArray[uniqueKey] = true
 
-		resultIDShort := result.ResultID
-		if len(resultIDShort) >= 16 {
-			resultIDShort = resultIDShort[:16] + "..."
-		}
-
 		tableData = append(tableData, []string{
-			resultIDShort,
+			result.ResultID,
 			awsAccount,
 			workload,
 			name,
@@ -483,11 +486,11 @@ func showRuntimeResults(client *sysdig.Client, outputFormat string, days int) er
 	fmt.Printf("Found %d unique runtime scan results\n\n", len(tableData))
 
 	// Print table manually for better formatting
-	fmt.Printf("%-19s %-20s %-12s %-30s %-4s %-4s\n", headers[0], headers[1], headers[2], headers[3], headers[4], headers[5])
-	fmt.Println(strings.Repeat("-", 100))
+	fmt.Printf("%-34s %-20s %-12s %-30s %-4s %-4s\n", headers[0], headers[1], headers[2], headers[3], headers[4], headers[5])
+	fmt.Println(strings.Repeat("-", 110))
 
 	for _, row := range tableData {
-		fmt.Printf("%-19s %-20s %-12s %-30s %-4s %-4s\n", row[0], row[1], row[2], row[3], row[4], row[5])
+		fmt.Printf("%-34s %-20s %-12s %-30s %-4s %-4s\n", row[0], row[1], row[2], row[3], row[4], row[5])
 	}
 
 	return nil
@@ -495,59 +498,45 @@ func showRuntimeResults(client *sysdig.Client, outputFormat string, days int) er
 
 func showScanDetails(client *sysdig.Client, resultID string, outputFormat string, aboveHigh bool, onlyNotAccepted bool) error {
 	fmt.Printf("Getting scan result details for: %s\n", resultID)
-	details, err := client.GetScanResultDetails(resultID)
+	vulnerabilities, err := client.GetScanResultVulnerabilities(resultID)
 	if err != nil {
 		return fmt.Errorf("failed to get scan result details: %w", err)
 	}
 
-	fmt.Printf("Scan result contains %d vulnerabilities\n", len(details.Vulnerabilities))
+	fmt.Printf("Scan result contains %d vulnerabilities\n", len(vulnerabilities))
+	fmt.Printf("AccessURL: https://us2.app.sysdig.com/secure/#/vulnerabilities/results/%s/overview\n", resultID)
 
-	// Create table for detailed vulnerability info (Pythonの実装に合わせる)
+	// Get first vulnerability's pull string if available
+	if len(vulnerabilities) > 0 {
+		// V2 API doesn't have metadata in response, but we can show basic info
+		fmt.Printf("PullString: [Available in scan result metadata]\n\n")
+	}
+
+	// Create table for detailed vulnerability info
 	headers := []string{"Vulnerability Name", "Package Name", "Package Path", "Severity", "Vuln Age"}
-	tableData := [][]string{}
-
-	for _, vuln := range details.Vulnerabilities {
-		// Get package information
-		packageInfo, exists := details.Packages[vuln.PackageRef]
-		packageName := "-"
-		packagePath := "-"
-		if exists {
-			packageName = packageInfo.Name
-			packagePath = packageInfo.Path
-		}
-
-		// Calculate vulnerability age (Pythonの実装に合わせる)
-		vulnAge := "-"
-		if vuln.DisclosureDate != "" {
-			// 簡単な計算（実際のPython実装では日数計算している）
-			vulnAge = vuln.DisclosureDate
-		}
-
-		tableData = append(tableData, []string{
-			vuln.Name,
-			packageName,
-			packagePath,
-			vuln.Severity,
-			vulnAge,
-		})
-	}
-
-	// Print PullString info if available
-	if details.Metadata.PullString != "" {
-		shortPullString := details.Metadata.PullString
-		if strings.Contains(shortPullString, "dkr.ecr.ap-northeast-1.amazonaws.com") {
-			shortPullString = strings.Replace(shortPullString, "dkr.ecr.ap-northeast-1.amazonaws.com", "...", -1)
-		}
-		fmt.Printf("AccessURL: https://us2.app.sysdig.com/secure/#/vulnerabilities/results/%s/overview\n", resultID)
-		fmt.Printf("PullString: %s\n\n", shortPullString)
-	}
-
-	// Print table manually for better formatting
 	fmt.Printf("%-20s %-30s %-30s %-10s %-15s\n", headers[0], headers[1], headers[2], headers[3], headers[4])
 	fmt.Println(strings.Repeat("-", 110))
 
-	for _, row := range tableData {
-		fmt.Printf("%-20s %-30s %-30s %-10s %-15s\n", row[0], row[1], row[2], row[3], row[4])
+	for _, vuln := range vulnerabilities {
+		// V2 API structure
+		packageName := vuln.Package.Name
+		if packageName == "" {
+			packageName = "-"
+		}
+
+		// Calculate vulnerability age
+		vulnAge := "-"
+		if vuln.Vuln.DisclosureDate != "" {
+			vulnAge = vuln.Vuln.DisclosureDate
+		}
+
+		fmt.Printf("%-20s %-30s %-30s %-10s %-15s\n",
+			vuln.Vuln.Name,
+			packageName,
+			"-", // V2 API doesn't have package path in this response
+			vuln.Vuln.SeverityString(),
+			vulnAge,
+		)
 	}
 
 	return nil
@@ -624,7 +613,7 @@ func createAcceptedRisks(client *sysdig.Client, cveList string, expirationDays i
 	return nil
 }
 
-func cachePipelineResults(client *sysdig.Client, cachePath string, days int) error {
+func cachePipelineResults(client *sysdig.Client, cachePath string, days int, batchSize int, apiDelay int) error {
 	fmt.Printf("Caching pipeline scan results (last %d days)...\n", days)
 
 	// Get pipeline results
@@ -638,22 +627,17 @@ func cachePipelineResults(client *sysdig.Client, cachePath string, days int) err
 	for _, result := range results {
 		if result.VulnTotalBySeverity.Critical > 0 || result.VulnTotalBySeverity.High > 0 {
 			filteredResults = append(filteredResults, result)
-			// Limit to 10 for testing as requested in task.md
-			if len(filteredResults) >= 10 {
-				break
-			}
 		}
 	}
 
-	fmt.Printf("Found %d pipeline scan results (%d with critical/high vulnerabilities, limited to 10 for detailed processing)\n", len(results), len(filteredResults))
+	fmt.Printf("Found %d pipeline scan results (%d with critical/high vulnerabilities for detailed processing)\n", len(results), len(filteredResults))
 
-	// Get detailed results for each scan result with critical/high vulnerabilities
-	detailedResults := make(map[string]*sysdig.DetailedScanResponse)
+	// Get V2 vulnerabilities for each scan result with critical/high vulnerabilities
+	vulnerabilities := make(map[string][]sysdig.Vulnerability)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
 	// Process in batches to avoid overwhelming the API
-	batchSize := 5
 	for i := 0; i < len(filteredResults); i += batchSize {
 		end := i + batchSize
 		if end > len(filteredResults) {
@@ -664,22 +648,38 @@ func cachePipelineResults(client *sysdig.Client, cachePath string, days int) err
 			wg.Add(1)
 			go func(result sysdig.ScanResult) {
 				defer wg.Done()
-				details, err := client.GetScanResultDetails(result.ResultID)
-				if err != nil {
-					log.Printf("Failed to get details for result %s: %v", result.ResultID, err)
-					return
+
+				// Retry logic for rate limit
+				maxRetries := 3
+				for retry := 0; retry < maxRetries; retry++ {
+					vulnList, err := client.GetScanResultVulnerabilities(result.ResultID)
+					if err != nil {
+						if strings.Contains(err.Error(), "Rate limit") && retry < maxRetries-1 {
+							log.Printf("Rate limit hit for %s, retrying in %d seconds...", result.ResultID, apiDelay*2)
+							time.Sleep(time.Duration(apiDelay*2) * time.Second)
+							continue
+						}
+						log.Printf("Failed to get vulnerabilities for result %s: %v", result.ResultID, err)
+						return
+					}
+
+					mu.Lock()
+					vulnerabilities[result.ResultID] = vulnList
+					mu.Unlock()
+
+					fmt.Printf(".")
+					break
 				}
-
-				mu.Lock()
-				detailedResults[result.ResultID] = details
-				mu.Unlock()
-
-				fmt.Printf(".")
 			}(filteredResults[j])
 		}
 		wg.Wait()
+
+		// Add delay between batches
+		if i+batchSize < len(filteredResults) {
+			time.Sleep(time.Duration(apiDelay) * time.Second)
+		}
 	}
-	fmt.Printf("\nRetrieved details for %d scan results\n", len(detailedResults))
+	fmt.Printf("\nRetrieved details for %d scan results\n", len(vulnerabilities))
 
 	// Create cache and save results
 	scanCache, err := cache.NewScanResultCache(cachePath)
@@ -688,7 +688,7 @@ func cachePipelineResults(client *sysdig.Client, cachePath string, days int) err
 	}
 	defer scanCache.Close()
 
-	if err := scanCache.SaveScanResults("pipeline", filteredResults, detailedResults); err != nil {
+	if err := scanCache.SaveScanResults("pipeline", filteredResults, vulnerabilities); err != nil {
 		return fmt.Errorf("failed to save pipeline results to cache: %w", err)
 	}
 
@@ -696,11 +696,11 @@ func cachePipelineResults(client *sysdig.Client, cachePath string, days int) err
 	return nil
 }
 
-func cacheRuntimeResults(client *sysdig.Client, cachePath string, days int) error {
-	fmt.Printf("Caching runtime scan results (last %d days)...\n", days)
+func cacheRuntimeResults(client *sysdig.Client, cachePath string, days int, batchSize int, apiDelay int, workloadLimit, hostLimit, containerLimit int) error {
+	fmt.Printf("Caching runtime scan results with limits (workload:%d, host:%d, container:%d)...\n", workloadLimit, hostLimit, containerLimit)
 
-	// Get runtime results
-	results, err := client.ListRuntimeResultsWithDays(days)
+	// Get runtime results with limits
+	results, err := client.ListRuntimeResultsWithLimits(days, workloadLimit, hostLimit, containerLimit)
 	if err != nil {
 		return fmt.Errorf("failed to list runtime results: %w", err)
 	}
@@ -710,22 +710,17 @@ func cacheRuntimeResults(client *sysdig.Client, cachePath string, days int) erro
 	for _, result := range results {
 		if result.VulnTotalBySeverity.Critical > 0 || result.VulnTotalBySeverity.High > 0 {
 			filteredResults = append(filteredResults, result)
-			// Limit to 10 for testing as requested in task.md
-			if len(filteredResults) >= 10 {
-				break
-			}
 		}
 	}
 
-	fmt.Printf("Found %d runtime scan results (%d with critical/high vulnerabilities, limited to 10 for detailed processing)\n", len(results), len(filteredResults))
+	fmt.Printf("Found %d runtime scan results (%d with critical/high vulnerabilities for detailed processing)\n", len(results), len(filteredResults))
 
-	// Get detailed results for each scan result with critical/high vulnerabilities
-	detailedResults := make(map[string]*sysdig.DetailedScanResponse)
+	// Get V2 vulnerabilities for each scan result with critical/high vulnerabilities
+	vulnerabilities := make(map[string][]sysdig.Vulnerability)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
 	// Process in batches to avoid overwhelming the API
-	batchSize := 5
 	for i := 0; i < len(filteredResults); i += batchSize {
 		end := i + batchSize
 		if end > len(filteredResults) {
@@ -736,22 +731,38 @@ func cacheRuntimeResults(client *sysdig.Client, cachePath string, days int) erro
 			wg.Add(1)
 			go func(result sysdig.ScanResult) {
 				defer wg.Done()
-				details, err := client.GetScanResultDetails(result.ResultID)
-				if err != nil {
-					log.Printf("Failed to get details for result %s: %v", result.ResultID, err)
-					return
+
+				// Retry logic for rate limit
+				maxRetries := 3
+				for retry := 0; retry < maxRetries; retry++ {
+					vulnList, err := client.GetScanResultVulnerabilities(result.ResultID)
+					if err != nil {
+						if strings.Contains(err.Error(), "Rate limit") && retry < maxRetries-1 {
+							log.Printf("Rate limit hit for %s, retrying in %d seconds...", result.ResultID, apiDelay*2)
+							time.Sleep(time.Duration(apiDelay*2) * time.Second)
+							continue
+						}
+						log.Printf("Failed to get vulnerabilities for result %s: %v", result.ResultID, err)
+						return
+					}
+
+					mu.Lock()
+					vulnerabilities[result.ResultID] = vulnList
+					mu.Unlock()
+
+					fmt.Printf(".")
+					break
 				}
-
-				mu.Lock()
-				detailedResults[result.ResultID] = details
-				mu.Unlock()
-
-				fmt.Printf(".")
 			}(filteredResults[j])
 		}
 		wg.Wait()
+
+		// Add delay between batches
+		if i+batchSize < len(filteredResults) {
+			time.Sleep(time.Duration(apiDelay) * time.Second)
+		}
 	}
-	fmt.Printf("\nRetrieved details for %d scan results\n", len(detailedResults))
+	fmt.Printf("\nRetrieved details for %d scan results\n", len(vulnerabilities))
 
 	// Create cache and save results
 	scanCache, err := cache.NewScanResultCache(cachePath)
@@ -760,7 +771,7 @@ func cacheRuntimeResults(client *sysdig.Client, cachePath string, days int) erro
 	}
 	defer scanCache.Close()
 
-	if err := scanCache.SaveScanResults("runtime", filteredResults, detailedResults); err != nil {
+	if err := scanCache.SaveScanResults("runtime", filteredResults, vulnerabilities); err != nil {
 		return fmt.Errorf("failed to save runtime results to cache: %w", err)
 	}
 
