@@ -1,0 +1,203 @@
+{
+  "vulnerabilities": {
+    "vuln-001": {
+      "cisaKev": {
+        "dueDate": "2023-10-31",
+        "knownRansomwareCampaignUse": false,
+        "publishDate": "2023-12-06"
+      },
+      "cvssScore": {
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "version": "3.1"
+      },
+      "disclosureDate": "2023-02-07",
+      "exploit": {
+        "links": [
+          "https://www.exploit-db.com/exploits/51234"
+        ],
+        "publicationDate": "2023-02-15T00:00:00.00Z"
+      },
+      "exploitable": true,
+      "fixVersion": "6.2.3",
+      "mainProvider": "nvd",
+      "name": "CVE-2025-30208",
+      "packageRef": "pkg-vite-001",
+      "providersMetadata": {
+        "nvd": {
+          "cvssScore": 7.5,
+          "cvssVector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+        }
+      },
+      "riskAcceptRefs": [],
+      "severity": "high",
+      "solutionDate": "2023-02-07"
+    },
+    "vuln-002": {
+      "cvssScore": {
+        "score": 9.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "version": "3.1"
+      },
+      "disclosureDate": "2023-03-23",
+      "exploitable": true,
+      "fixVersion": "",
+      "mainProvider": "nvd",
+      "name": "CVE-2023-0465",
+      "packageRef": "pkg-openssl-001",
+      "providersMetadata": {
+        "nvd": {
+          "cvssScore": 9.8,
+          "cvssVector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+        }
+      },
+      "riskAcceptRefs": [],
+      "severity": "critical",
+      "solutionDate": ""
+    },
+    "vuln-003": {
+      "cvssScore": {
+        "score": 5.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+        "version": "3.1"
+      },
+      "disclosureDate": "2023-10-11",
+      "exploitable": false,
+      "fixVersion": "8.4.0",
+      "mainProvider": "nvd",
+      "name": "CVE-2023-38545",
+      "packageRef": "pkg-curl-001",
+      "providersMetadata": {
+        "nvd": {
+          "cvssScore": 5.3,
+          "cvssVector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
+        }
+      },
+      "riskAcceptRefs": [],
+      "severity": "medium",
+      "solutionDate": "2023-10-11"
+    },
+    "vuln-004": {
+      "cvssScore": {
+        "score": 7.5,
+        "vector": "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "version": "3.0"
+      },
+      "disclosureDate": "2025-01-15",
+      "exploitable": false,
+      "fixVersion": "",
+      "mainProvider": "nvd",
+      "name": "CVE-2025-58754",
+      "packageRef": "pkg-axios-001",
+      "providersMetadata": {
+        "nvd": {
+          "cvssScore": 7.5,
+          "cvssVector": "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+        }
+      },
+      "riskAcceptRefs": [],
+      "severity": "high",
+      "solutionDate": ""
+    },
+    "vuln-005": {
+      "cvssScore": {
+        "score": 3.7,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:L/A:N",
+        "version": "3.1"
+      },
+      "disclosureDate": "2011-09-01",
+      "exploitable": false,
+      "fixVersion": "",
+      "mainProvider": "nvd",
+      "name": "CVE-2011-3374",
+      "packageRef": "pkg-apt-001",
+      "providersMetadata": {
+        "nvd": {
+          "cvssScore": 3.7,
+          "cvssVector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:L/A:N"
+        }
+      },
+      "riskAcceptRefs": [],
+      "severity": "negligible",
+      "solutionDate": ""
+    },
+    "vuln-006": {
+      "cvssScore": {
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+        "version": "3.1"
+      },
+      "disclosureDate": "2025-02-10",
+      "exploitable": false,
+      "fixVersion": "1.22.0",
+      "mainProvider": "nvd",
+      "name": "CVE-2025-6297",
+      "packageRef": "pkg-dpkg-001",
+      "providersMetadata": {
+        "nvd": {
+          "cvssScore": 6.5,
+          "cvssVector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N"
+        }
+      },
+      "riskAcceptRefs": [],
+      "severity": "medium",
+      "solutionDate": "2025-02-15"
+    }
+  },
+  "packages": {
+    "pkg-vite-001": {
+      "name": "vite",
+      "version": "6.2.2",
+      "type": "javascript",
+      "path": "/app/node_modules/vite",
+      "isRunning": true,
+      "isRemoved": false,
+      "vulnerabilitiesRefs": ["vuln-001"]
+    },
+    "pkg-openssl-001": {
+      "name": "openssl",
+      "version": "3.0.8",
+      "type": "os",
+      "path": "/usr/lib/x86_64-linux-gnu",
+      "isRunning": true,
+      "isRemoved": false,
+      "vulnerabilitiesRefs": ["vuln-002"]
+    },
+    "pkg-curl-001": {
+      "name": "curl",
+      "version": "8.3.0",
+      "type": "os",
+      "path": "/usr/bin",
+      "isRunning": true,
+      "isRemoved": false,
+      "vulnerabilitiesRefs": ["vuln-003"]
+    },
+    "pkg-axios-001": {
+      "name": "axios",
+      "version": "1.8.3",
+      "type": "javascript",
+      "path": "/app/node_modules/axios",
+      "isRunning": true,
+      "isRemoved": false,
+      "vulnerabilitiesRefs": ["vuln-004"]
+    },
+    "pkg-apt-001": {
+      "name": "apt",
+      "version": "2.6.1",
+      "type": "os",
+      "path": "/usr/bin",
+      "isRunning": false,
+      "isRemoved": false,
+      "vulnerabilitiesRefs": ["vuln-005"]
+    },
+    "pkg-dpkg-001": {
+      "name": "dpkg",
+      "version": "1.21.22",
+      "type": "os",
+      "path": "/usr/bin",
+      "isRunning": true,
+      "isRemoved": false,
+      "vulnerabilitiesRefs": ["vuln-006"]
+    }
+  }
+}

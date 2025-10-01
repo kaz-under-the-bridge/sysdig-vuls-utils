@@ -52,31 +52,34 @@ tasks:
       - rm -f {{.COVERAGE_FILE}} {{.COVERAGE_HTML}}
 
   test:
-    desc: テストを実行
+    desc: テストを実行（go vetを前提条件として実行）
+    deps: [vet]
     cmds:
-      - go test -v ./...
+      - CGO_ENABLED=1 go test -v ./...
 
   test-coverage:
-    desc: カバレッジ付きでテストを実行
+    desc: カバレッジ付きでテストを実行（go vetを前提条件として実行）
+    deps: [vet]
     cmds:
-      - go test -v -coverprofile={{.COVERAGE_FILE}} ./...
+      - CGO_ENABLED=1 go test -v -coverprofile={{.COVERAGE_FILE}} ./...
       - go tool cover -html={{.COVERAGE_FILE}} -o {{.COVERAGE_HTML}}
       - 'echo "カバレッジレポート: {{.COVERAGE_HTML}}"'
 
   test-race:
-    desc: レース条件検出付きでテストを実行
+    desc: レース条件検出付きでテストを実行（go vetを前提条件として実行）
+    deps: [vet]
     cmds:
-      - go test -race -v ./...
+      - CGO_ENABLED=1 go test -race -v ./...
 
   test-short:
     desc: 短時間テストのみ実行
     cmds:
-      - go test -short -v ./...
+      - CGO_ENABLED=1 go test -short -v ./...
 
   bench:
     desc: ベンチマークテストを実行
     cmds:
-      - go test -bench=. -benchmem ./...
+      - CGO_ENABLED=1 go test -bench=. -benchmem ./...
 
   lint:
     desc: コードのリント実行
@@ -234,6 +237,12 @@ tasks:
     cmds:
       - goimports -w .
 
+  fix:
+    desc: コード修正後の自動整形（goimports + go fmt）
+    cmds:
+      - goimports -w .
+      - go fmt ./...
+
   complexity:
     desc: 循環的複雑度をチェック（要gocyclo）
     cmds:
@@ -272,6 +281,6 @@ tasks:
   test-pkg:
     desc: 特定パッケージのテスト
     cmds:
-      - go test -v ./{{.PKG}}/...
+      - CGO_ENABLED=1 go test -v ./{{.PKG}}/...
     vars:
       PKG: '{{.PKG | default "pkg/sysdig"}}'

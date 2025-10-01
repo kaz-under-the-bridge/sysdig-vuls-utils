@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	pathpkg "path/filepath"
+	"strings"
+	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/kaz-under-the-bridge/sysdig-vuls-utils/pkg/sysdig"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // CacheType represents the type of cache storage
@@ -146,10 +148,14 @@ func (c *SQLiteCache) createTables() error {
 			disclosure_date TEXT,
 			package_ref TEXT,
 			package_name TEXT,
+			package_version TEXT,
+			package_type TEXT,
 			package_path TEXT,
 			fixable BOOLEAN DEFAULT 0,
 			exploitable BOOLEAN DEFAULT 0,
 			fixed_version TEXT,
+			cvss_score REAL,
+			cvss_version TEXT,
 			FOREIGN KEY (result_id) REFERENCES scan_results(result_id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS detection_sources (
@@ -389,8 +395,8 @@ func (c *SQLiteCache) SaveScanResults(scanType string, results []sysdig.ScanResu
 
 	insertVuln, err := tx.Prepare(`
 		INSERT OR REPLACE INTO scan_vulnerabilities
-		(result_id, vuln_id, vuln_name, severity, disclosure_date, package_ref, package_name, package_path, fixable, exploitable, fixed_version)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		(result_id, vuln_id, vuln_name, severity, disclosure_date, package_ref, package_name, package_version, package_type, package_path, fixable, exploitable, fixed_version, cvss_score, cvss_version)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare vulnerability statement: %w", err)
 	}
@@ -419,14 +425,22 @@ func (c *SQLiteCache) SaveScanResults(scanType string, results []sysdig.ScanResu
 
 		containerImage := extractStringFromScope(result.Scope, "aws.ecs.task.container.image")
 		totalCount := result.VulnTotalBySeverity.Critical + result.VulnTotalBySeverity.High +
-					 result.VulnTotalBySeverity.Medium + result.VulnTotalBySeverity.Low
+			result.VulnTotalBySeverity.Medium + result.VulnTotalBySeverity.Low
 
 		// Extract asset type from scope
 		assetType := extractStringFromScope(result.Scope, "asset.type")
 
+		// Handle created_at: use NULL if empty
+		var createdAtValue interface{}
+		if result.CreatedAt == "" {
+			createdAtValue = nil
+		} else {
+			createdAtValue = result.CreatedAt
+		}
+
 		// Insert scan result
 		_, err = insertScanResult.Exec(
-			result.ResultID, scanType, result.CreatedAt, result.PullString, assetType,
+			result.ResultID, scanType, createdAtValue, result.PullString, assetType,
 			awsAccountID, awsAccountName, awsRegion, workloadType, workloadName,
 			clusterName, containerName, containerImage,
 			result.VulnTotalBySeverity.Critical, result.VulnTotalBySeverity.High,
@@ -448,8 +462,8 @@ func (c *SQLiteCache) SaveScanResults(scanType string, results []sysdig.ScanResu
 
 				_, err = insertVuln.Exec(
 					result.ResultID, vuln.ID, vuln.Vuln.Name, vuln.Vuln.SeverityString(),
-					vuln.Vuln.DisclosureDate, "", vuln.Package.Name, "",
-					fixable, vuln.Vuln.Exploitable, fixedVersion)
+					vuln.Vuln.DisclosureDate, vuln.Package.ID, vuln.Package.Name, vuln.Package.Version, vuln.Package.Type, "",
+					fixable, vuln.Vuln.Exploitable, fixedVersion, vuln.Vuln.CvssScore, vuln.Vuln.CvssVersion)
 				if err != nil {
 					return fmt.Errorf("failed to insert vulnerability: %w", err)
 				}
@@ -462,8 +476,189 @@ func (c *SQLiteCache) SaveScanResults(scanType string, results []sysdig.ScanResu
 
 // LoadScanResults implements ScanResultCache interface for SQLiteCache
 func (c *SQLiteCache) LoadScanResults(scanType string, days int) ([]ScanResultWithDetails, error) {
-	// This is a basic implementation - can be extended as needed
-	return []ScanResultWithDetails{}, nil
+	// Calculate cutoff date
+	cutoffDate := time.Now().AddDate(0, 0, -days).Format(time.RFC3339)
+
+	// Load scan results
+	query := `
+		SELECT result_id, scan_type, created_at, pull_string, asset_type,
+		       aws_account_id, aws_account_name, aws_region,
+		       workload_type, workload_name, cluster_name,
+		       container_name, container_image,
+		       critical_count, high_count, medium_count, low_count, total_count
+		FROM scan_results
+		WHERE scan_type = ? AND (created_at >= ? OR created_at IS NULL)
+		ORDER BY created_at DESC
+	`
+
+	rows, err := c.db.Query(query, scanType, cutoffDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query scan results: %w", err)
+	}
+	defer rows.Close()
+
+	results := []ScanResultWithDetails{}
+
+	for rows.Next() {
+		var r ScanResultWithDetails
+		var createdAt, pullString, assetType sql.NullString
+		var awsAccountID, awsAccountName, awsRegion sql.NullString
+		var workloadType, workloadName, clusterName sql.NullString
+		var containerName, containerImage sql.NullString
+
+		err := rows.Scan(
+			&r.ScanResult.ResultID,
+			&scanType, // scan_type (already filtered by WHERE clause)
+			&createdAt,
+			&pullString,
+			&assetType,
+			&awsAccountID,
+			&awsAccountName,
+			&awsRegion,
+			&workloadType,
+			&workloadName,
+			&clusterName,
+			&containerName,
+			&containerImage,
+			&r.ScanResult.VulnTotalBySeverity.Critical,
+			&r.ScanResult.VulnTotalBySeverity.High,
+			&r.ScanResult.VulnTotalBySeverity.Medium,
+			&r.ScanResult.VulnTotalBySeverity.Low,
+			&r.ScanResult.VulnTotalBySeverity.Negligible,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Set nullable fields
+		if createdAt.Valid {
+			r.ScanResult.CreatedAt = createdAt.String
+		}
+		if pullString.Valid {
+			r.ScanResult.PullString = pullString.String
+			r.ScanResult.MainAssetName = pullString.String // For pipeline, use pullString as asset name
+		}
+
+		// Build Scope map for runtime results
+		if scanType == "runtime" {
+			r.ScanResult.Scope = make(map[string]interface{})
+			if assetType.Valid {
+				r.ScanResult.Scope["asset.type"] = assetType.String
+			}
+			if awsAccountID.Valid && awsAccountID.String != "" {
+				r.ScanResult.Scope["aws.accountId"] = awsAccountID.String
+			}
+			if awsRegion.Valid && awsRegion.String != "" {
+				r.ScanResult.Scope["aws.region"] = awsRegion.String
+			}
+			if clusterName.Valid && clusterName.String != "" {
+				r.ScanResult.Scope["kubernetes.cluster.name"] = clusterName.String
+			}
+			if workloadType.Valid && workloadType.String != "" {
+				r.ScanResult.Scope["kubernetes.workload.type"] = workloadType.String
+			}
+			if workloadName.Valid && workloadName.String != "" {
+				r.ScanResult.Scope["kubernetes.workload.name"] = workloadName.String
+			}
+			if containerName.Valid && containerName.String != "" {
+				r.ScanResult.Scope["container.name"] = containerName.String
+			}
+			if containerImage.Valid && containerImage.String != "" {
+				r.ScanResult.Scope["container.image"] = containerImage.String
+			}
+			// Use workload name or container name as MainAssetName
+			if workloadName.Valid {
+				r.ScanResult.MainAssetName = workloadName.String
+			} else if containerName.Valid {
+				r.ScanResult.MainAssetName = containerName.String
+			}
+		}
+
+		// Load vulnerabilities for this result
+		vulnQuery := `
+			SELECT vuln_id, vuln_name, severity, disclosure_date,
+			       package_ref, package_name, package_version, package_type, package_path,
+			       fixable, exploitable, cvss_score, cvss_version
+			FROM scan_vulnerabilities
+			WHERE result_id = ?
+		`
+		vulnRows, err := c.db.Query(vulnQuery, r.ScanResult.ResultID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query vulnerabilities for result %s: %w", r.ScanResult.ResultID, err)
+		}
+
+		vulnerabilities := []sysdig.Vulnerability{}
+		for vulnRows.Next() {
+			var vuln sysdig.Vulnerability
+			var disclosureDate, packagePath sql.NullString
+			var cvssVersion sql.NullString
+			var cvssScore sql.NullFloat64
+			var severityStr string
+
+			err := vulnRows.Scan(
+				&vuln.ID,
+				&vuln.Vuln.Name,
+				&severityStr,
+				&disclosureDate,
+				&vuln.Package.ID,
+				&vuln.Package.Name,
+				&vuln.Package.Version,
+				&vuln.Package.Type,
+				&packagePath,
+				&vuln.Vuln.Fixable,
+				&vuln.Vuln.Exploitable,
+				&cvssScore,
+				&cvssVersion,
+			)
+			if err != nil {
+				vulnRows.Close()
+				return nil, fmt.Errorf("failed to scan vulnerability row: %w", err)
+			}
+
+			// Convert severity string to int
+			vuln.Vuln.Severity = severityStringToInt(severityStr)
+
+			if disclosureDate.Valid {
+				vuln.Vuln.DisclosureDate = disclosureDate.String
+			}
+			if cvssScore.Valid {
+				vuln.Vuln.CvssScore = cvssScore.Float64
+			}
+			if cvssVersion.Valid {
+				vuln.Vuln.CvssVersion = cvssVersion.String
+			}
+
+			vulnerabilities = append(vulnerabilities, vuln)
+		}
+		vulnRows.Close()
+
+		r.Vulnerabilities = vulnerabilities
+		results = append(results, r)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return results, nil
+}
+
+// severityStringToInt converts severity string to integer value
+func severityStringToInt(severity string) int {
+	switch strings.ToLower(severity) {
+	case "critical":
+		return 4
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	case "low":
+		return 1
+	case "negligible":
+		return 5
+	default:
+		return 0
+	}
 }
 
 // ClearScanResults implements ScanResultCache interface for SQLiteCache

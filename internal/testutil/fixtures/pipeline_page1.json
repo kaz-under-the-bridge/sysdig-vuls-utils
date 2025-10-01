@@ -1,0 +1,78 @@
+{
+  "data": [
+    {
+      "createdAt": "{{RECENT_TIME_3D}}",
+      "imageId": "sha256:a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+      "policyEvaluationResult": "failed",
+      "pullString": "123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/demo-frontend:abc123def456",
+      "resultId": "scan-demo-001",
+      "vulnTotalBySeverity": {
+        "critical": 2,
+        "high": 24,
+        "low": 12,
+        "medium": 34,
+        "negligible": 5
+      }
+    },
+    {
+      "createdAt": "{{RECENT_TIME_3D}}",
+      "imageId": "sha256:b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3",
+      "policyEvaluationResult": "failed",
+      "pullString": "123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/demo-worker:abc123def456",
+      "resultId": "scan-demo-002",
+      "vulnTotalBySeverity": {
+        "critical": 5,
+        "high": 0,
+        "low": 19,
+        "medium": 38,
+        "negligible": 8
+      }
+    },
+    {
+      "createdAt": "{{RECENT_TIME_3D}}",
+      "imageId": "sha256:c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+      "policyEvaluationResult": "failed",
+      "pullString": "123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/demo-api:abc123def456",
+      "resultId": "scan-demo-003",
+      "vulnTotalBySeverity": {
+        "critical": 0,
+        "high": 15,
+        "low": 8,
+        "medium": 22,
+        "negligible": 3
+      }
+    },
+    {
+      "createdAt": "{{RECENT_TIME_3D}}",
+      "imageId": "sha256:d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5",
+      "policyEvaluationResult": "passed",
+      "pullString": "987654321098.dkr.ecr.ap-northeast-1.amazonaws.com/example-batch:xyz789abc123",
+      "resultId": "scan-example-001",
+      "vulnTotalBySeverity": {
+        "critical": 0,
+        "high": 0,
+        "low": 7,
+        "medium": 12,
+        "negligible": 20
+      }
+    },
+    {
+      "createdAt": "{{RECENT_TIME_3D}}",
+      "imageId": "sha256:e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6",
+      "policyEvaluationResult": "passed",
+      "pullString": "111122223333.dkr.ecr.us-west-2.amazonaws.com/test-service:v1.2.3",
+      "resultId": "scan-test-001",
+      "vulnTotalBySeverity": {
+        "critical": 1,
+        "high": 3,
+        "low": 5,
+        "medium": 8,
+        "negligible": 2
+      }
+    }
+  ],
+  "page": {
+    "next": "K3NjYW4tdGVzdC0wMDE=",
+    "total": 5
+  }
+}

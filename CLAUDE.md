@@ -79,6 +79,7 @@ task bench                   # ベンチマークテスト
 task lint                    # golangci-lintでリント
 task lint-fix                # 自動修正可能なリント問題を修正
 task fmt                     # コードフォーマット
+task fix                     # コード修正後の自動整形（goimports + go fmt）
 task vet                     # go vetを実行
 task staticcheck             # staticcheckを実行
 task check                   # 全品質チェック（fmt, vet, staticcheck, lint, test）
@@ -108,6 +109,20 @@ task dev-watch               # ファイル監視と自動ビルド（要fswatch
 task docs                    # APIドキュメント生成
 task version                 # バージョン情報表示
 ```
+
+### コード修正後の推奨ワークフロー
+
+コード修正（特にimport追加やパッケージ変更）を行った後は、以下のコマンドで自動整形を実行することを推奨：
+
+```bash
+task fix
+```
+
+このコマンドは以下を自動実行します：
+1. `goimports -w .` - import文の整理と追加/削除
+2. `go fmt ./...` - コードフォーマット
+
+**Claudeへの指示**: コード修正後は必ず`task fix`を実行してimportを整理すること。
 
 ## コードアーキテクチャ
 
