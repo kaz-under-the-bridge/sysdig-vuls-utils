@@ -1,0 +1,91 @@
+{
+  "data": [
+    {
+      "isRiskSpotlightEnabled": true,
+      "mainAssetName": "stg-example-service/api-server",
+      "policyEvaluationResult": "failed",
+      "resourceId": "sha256:e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6",
+      "resultId": "runtime-workload-003",
+      "runningVulnTotalBySeverity": {
+        "critical": 5,
+        "high": 0,
+        "low": 8,
+        "medium": 12,
+        "negligible": 3
+      },
+      "sbomId": "sbom-workload-003",
+      "scope": {
+        "asset.type": "workload",
+        "cloud.account.id": "111122223333",
+        "cloud.account.name": "stg-example",
+        "kubernetes.cluster.name": "stg-example-service",
+        "kubernetes.namespace.name": "api",
+        "kubernetes.workload.name": "api-server",
+        "kubernetes.workload.type": "deployment"
+      },
+      "vulnTotalBySeverity": {
+        "critical": 8,
+        "high": 0,
+        "low": 15,
+        "medium": 20,
+        "negligible": 6
+      }
+    },
+    {
+      "isRiskSpotlightEnabled": false,
+      "mainAssetName": "ip-10-1-2-50.demo.internal",
+      "policyEvaluationResult": "passed",
+      "resourceId": "sha256:f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1",
+      "resultId": "runtime-host-002",
+      "runningVulnTotalBySeverity": {
+        "critical": 0,
+        "high": 0,
+        "low": 3,
+        "medium": 5,
+        "negligible": 10
+      },
+      "sbomId": "sbom-host-002",
+      "scope": {
+        "asset.type": "host",
+        "host.hostName": "ip-10-1-2-50.demo.internal"
+      },
+      "vulnTotalBySeverity": {
+        "critical": 0,
+        "high": 0,
+        "low": 5,
+        "medium": 8,
+        "negligible": 15
+      }
+    },
+    {
+      "isRiskSpotlightEnabled": true,
+      "mainAssetName": "monitoring-agent",
+      "policyEvaluationResult": "failed",
+      "resourceId": "sha256:a1c2e3f4b5d6a1c2e3f4b5d6a1c2e3f4b5d6a1c2e3f4b5d6a1c2e3f4b5d6a1c2",
+      "resultId": "runtime-container-002",
+      "runningVulnTotalBySeverity": {
+        "critical": 1,
+        "high": 4,
+        "low": 2,
+        "medium": 3,
+        "negligible": 1
+      },
+      "sbomId": "sbom-container-002",
+      "scope": {
+        "asset.type": "container",
+        "container.id": "xyz789abc123def456",
+        "container.name": "monitoring-agent"
+      },
+      "vulnTotalBySeverity": {
+        "critical": 2,
+        "high": 6,
+        "low": 4,
+        "medium": 5,
+        "negligible": 2
+      }
+    }
+  ],
+  "page": {
+    "total": 3
+  }
+}

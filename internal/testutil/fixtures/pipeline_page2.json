@@ -1,0 +1,63 @@
+{
+  "data": [
+    {
+      "createdAt": "{{RECENT_TIME_2D}}",
+      "imageId": "sha256:f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1",
+      "policyEvaluationResult": "failed",
+      "pullString": "444455556666.dkr.ecr.eu-west-1.amazonaws.com/prod-backend:release-2024",
+      "resultId": "scan-prod-001",
+      "vulnTotalBySeverity": {
+        "critical": 10,
+        "high": 45,
+        "low": 15,
+        "medium": 28,
+        "negligible": 6
+      }
+    },
+    {
+      "createdAt": "{{RECENT_TIME_2D}}",
+      "imageId": "sha256:a2b3c4d5e6f7a2b3c4d5e6f7a2b3c4d5e6f7a2b3c4d5e6f7a2b3c4d5e6f7a2b3",
+      "policyEvaluationResult": "failed",
+      "pullString": "444455556666.dkr.ecr.eu-west-1.amazonaws.com/prod-database:v3.14",
+      "resultId": "scan-prod-002",
+      "vulnTotalBySeverity": {
+        "critical": 3,
+        "high": 0,
+        "low": 8,
+        "medium": 12,
+        "negligible": 4
+      }
+    },
+    {
+      "createdAt": "{{RECENT_TIME_2D}}",
+      "imageId": "sha256:b3c4d5e6f7a2b3c4d5e6f7a2b3c4d5e6f7a2b3c4d5e6f7a2b3c4d5e6f7a2b3c4",
+      "policyEvaluationResult": "failed",
+      "pullString": "555566667777.dkr.ecr.ap-south-1.amazonaws.com/analytics-worker:latest",
+      "resultId": "scan-analytics-001",
+      "vulnTotalBySeverity": {
+        "critical": 0,
+        "high": 8,
+        "low": 3,
+        "medium": 6,
+        "negligible": 1
+      }
+    },
+    {
+      "createdAt": "{{RECENT_TIME_2D}}",
+      "imageId": "sha256:c4d5e6f7a2b3c4d5e6f7a2b3c4d5e6f7a2b3c4d5e6f7a2b3c4d5e6f7a2b3c4d5",
+      "policyEvaluationResult": "passed",
+      "pullString": "nginx:1.25-alpine",
+      "resultId": "scan-nginx-001",
+      "vulnTotalBySeverity": {
+        "critical": 0,
+        "high": 0,
+        "low": 2,
+        "medium": 5,
+        "negligible": 10
+      }
+    }
+  ],
+  "page": {
+    "total": 4
+  }
+}

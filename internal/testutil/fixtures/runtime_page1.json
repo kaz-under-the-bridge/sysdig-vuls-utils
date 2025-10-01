@@ -1,0 +1,123 @@
+{
+  "data": [
+    {
+      "isRiskSpotlightEnabled": true,
+      "mainAssetName": "prd-demo-redash/redash-worker",
+      "policyEvaluationResult": "failed",
+      "resourceId": "sha256:a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+      "resultId": "runtime-workload-001",
+      "runningVulnTotalBySeverity": {
+        "critical": 50,
+        "high": 400,
+        "low": 100,
+        "medium": 250,
+        "negligible": 20
+      },
+      "sbomId": "sbom-workload-001",
+      "scope": {
+        "asset.type": "workload",
+        "cloud.account.id": "123456789012",
+        "cloud.account.name": "prd-data-platform",
+        "kubernetes.cluster.name": "prd-demo-redash",
+        "kubernetes.namespace.name": "default",
+        "kubernetes.workload.name": "redash-worker",
+        "kubernetes.workload.type": "deployment"
+      },
+      "vulnTotalBySeverity": {
+        "critical": 84,
+        "high": 865,
+        "low": 150,
+        "medium": 420,
+        "negligible": 35
+      }
+    },
+    {
+      "isRiskSpotlightEnabled": true,
+      "mainAssetName": "prd-example-batch/postgres",
+      "policyEvaluationResult": "failed",
+      "resourceId": "sha256:b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3",
+      "resultId": "runtime-workload-002",
+      "runningVulnTotalBySeverity": {
+        "critical": 10,
+        "high": 80,
+        "low": 30,
+        "medium": 50,
+        "negligible": 5
+      },
+      "sbomId": "sbom-workload-002",
+      "scope": {
+        "asset.type": "workload",
+        "cloud.account.id": "987654321098",
+        "cloud.account.name": "prd-example",
+        "kubernetes.cluster.name": "prd-example-batch",
+        "kubernetes.namespace.name": "database",
+        "kubernetes.workload.name": "postgres",
+        "kubernetes.workload.type": "statefulset"
+      },
+      "vulnTotalBySeverity": {
+        "critical": 24,
+        "high": 140,
+        "low": 45,
+        "medium": 88,
+        "negligible": 12
+      }
+    },
+    {
+      "isRiskSpotlightEnabled": false,
+      "mainAssetName": "ip-10-0-1-100.example.internal",
+      "policyEvaluationResult": "failed",
+      "resourceId": "sha256:c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+      "resultId": "runtime-host-001",
+      "runningVulnTotalBySeverity": {
+        "critical": 1,
+        "high": 5,
+        "low": 2,
+        "medium": 3,
+        "negligible": 0
+      },
+      "sbomId": "sbom-host-001",
+      "scope": {
+        "asset.type": "host",
+        "host.hostName": "ip-10-0-1-100.example.internal"
+      },
+      "vulnTotalBySeverity": {
+        "critical": 2,
+        "high": 8,
+        "low": 4,
+        "medium": 6,
+        "negligible": 1
+      }
+    },
+    {
+      "isRiskSpotlightEnabled": true,
+      "mainAssetName": "redis-cache-container",
+      "policyEvaluationResult": "failed",
+      "resourceId": "sha256:d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5",
+      "resultId": "runtime-container-001",
+      "runningVulnTotalBySeverity": {
+        "critical": 0,
+        "high": 3,
+        "low": 5,
+        "medium": 2,
+        "negligible": 8
+      },
+      "sbomId": "sbom-container-001",
+      "scope": {
+        "asset.type": "container",
+        "container.id": "abc123def456ghi789",
+        "container.name": "redis-cache"
+      },
+      "vulnTotalBySeverity": {
+        "critical": 0,
+        "high": 10,
+        "low": 12,
+        "medium": 8,
+        "negligible": 15
+      }
+    }
+  ],
+  "page": {
+    "next": "UnVudGltZVBhZ2Uy",
+    "total": 4
+  }
+}

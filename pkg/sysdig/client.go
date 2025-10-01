@@ -20,12 +20,11 @@ type Client struct {
 // Vulnerability represents a vulnerability from Sysdig V2 API
 // This is now based on the V2 API structure for consistency
 type Vulnerability struct {
-	ID             string     `json:"id"`
-	Vuln           VulnV2     `json:"vuln"`
-	Package        PackageV2  `json:"package"`
-	FixedInVersion *string    `json:"fixedInVersion"` // Use pointer to detect null values
+	ID             string    `json:"id"`
+	Vuln           VulnV2    `json:"vuln"`
+	Package        PackageV2 `json:"package"`
+	FixedInVersion *string   `json:"fixedInVersion"` // Use pointer to detect null values
 }
-
 
 // VulnerabilityResponse represents the V2 API response for vulnerability lists
 type VulnerabilityResponse struct {
@@ -41,30 +40,30 @@ type PageInfo struct {
 }
 
 type VulnV2 struct {
-	Name              string                    `json:"name"`
-	Severity          int                       `json:"severity"` // 1=low, 2=medium, 3=high, 4=critical
-	CvssVersion       string                    `json:"cvssVersion"`
-	CvssScore         float64                   `json:"cvssScore"`
-	EpssScore         *EpssScore                `json:"epssScore,omitempty"`
-	Exploitable       bool                      `json:"exploitable"`
-	CisaKev           bool                      `json:"cisakev"`
-	DisclosureDate    string                    `json:"disclosureDate"`
-	AcceptedRisks     []interface{}             `json:"acceptedRisks"`
-	ProvidersMetadata map[string]ProviderMeta   `json:"providersMetadata"`
-	Fixable           bool                      `json:"-"` // Computed based on FixedInVersion
+	Name              string                  `json:"name"`
+	Severity          int                     `json:"severity"` // 1=low, 2=medium, 3=high, 4=critical
+	CvssVersion       string                  `json:"cvssVersion"`
+	CvssScore         float64                 `json:"cvssScore"`
+	EpssScore         *EpssScore              `json:"epssScore,omitempty"`
+	Exploitable       bool                    `json:"exploitable"`
+	CisaKev           bool                    `json:"cisakev"`
+	DisclosureDate    string                  `json:"disclosureDate"`
+	AcceptedRisks     []interface{}           `json:"acceptedRisks"`
+	ProvidersMetadata map[string]ProviderMeta `json:"providersMetadata"`
+	Fixable           bool                    `json:"-"` // Computed based on FixedInVersion
 }
 
 type EpssScore struct {
-	Score      float64   `json:"score"`
-	Percentile float64   `json:"percentile"`
-	Timestamp  string    `json:"timestamp"`
+	Score      float64 `json:"score"`
+	Percentile float64 `json:"percentile"`
+	Timestamp  string  `json:"timestamp"`
 }
 
 type ProviderMeta struct {
-	PublishDate *string      `json:"publishDate,omitempty"`
-	CvssScore   *CvssScore   `json:"cvssScore,omitempty"`
-	Severity    *string      `json:"severity,omitempty"`
-	EpssScore   *EpssScore   `json:"epssScore,omitempty"`
+	PublishDate *string    `json:"publishDate,omitempty"`
+	CvssScore   *CvssScore `json:"cvssScore,omitempty"`
+	Severity    *string    `json:"severity,omitempty"`
+	EpssScore   *EpssScore `json:"epssScore,omitempty"`
 }
 
 type CvssScore struct {
@@ -90,23 +89,9 @@ type LayerV2 struct {
 	Command string `json:"command"`
 }
 
-// VulnPackageV2 represents the raw V2 API response structure
-type VulnPackageV2 struct {
-	ID             string     `json:"id"`
-	Vuln           VulnV2     `json:"vuln"`
-	Package        PackageV2  `json:"package"`
-	FixedInVersion string     `json:"fixedInVersion,omitempty"`
-}
-
-// VulnPackageResponseV2 represents the V2 API response
-type VulnPackageResponseV2 struct {
-	Page PageInfo        `json:"page"`
-	Data []VulnPackageV2 `json:"data"`
-}
-
 // VulnerabilityFilter represents filter options for V2 API
 type VulnerabilityFilter struct {
-	Severity    []string `json:"severity,omitempty"`    // 1=low, 2=medium, 3=high, 4=critical
+	Severity    []string `json:"severity,omitempty"` // 1=low, 2=medium, 3=high, 4=critical
 	Fixable     *bool    `json:"fixable,omitempty"`
 	Exploitable *bool    `json:"exploitable,omitempty"`
 	PackageName string   `json:"packageName,omitempty"`
@@ -149,7 +134,6 @@ func (c *Client) makeRequest(method, endpoint string, body interface{}) (*http.R
 		}
 	}
 
-
 	var reqBody io.Reader
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -178,14 +162,14 @@ func (c *Client) makeRequest(method, endpoint string, body interface{}) (*http.R
 	return resp, nil
 }
 
-// ListVulnerabilities retrieves all vulnerabilities from a scan result using V2 API
+// ListVulnerabilities retrieves all vulnerabilities from a scan result using V1 API
 func (c *Client) ListVulnerabilities(resultID string) ([]Vulnerability, error) {
-	return c.GetAllVulnPackagesV2(resultID)
+	return c.GetScanResultVulnerabilities(resultID)
 }
 
-// GetVulnerability retrieves a specific vulnerability from a scan result by ID using V2 API
+// GetVulnerability retrieves a specific vulnerability from a scan result by ID using V1 API
 func (c *Client) GetVulnerability(resultID, vulnID string) (*Vulnerability, error) {
-	allVulns, err := c.GetAllVulnPackagesV2(resultID)
+	allVulns, err := c.GetScanResultVulnerabilities(resultID)
 	if err != nil {
 		return nil, err
 	}
@@ -245,9 +229,9 @@ func (c *Client) ListVulnerabilitiesBySeverity(severity string) ([]Vulnerability
 	return vulnResp.Data, nil
 }
 
-// ListVulnerabilitiesWithFilters retrieves vulnerabilities with multiple filters using V2 API
+// ListVulnerabilitiesWithFilters retrieves vulnerabilities with multiple filters using V1 API
 func (c *Client) ListVulnerabilitiesWithFilters(resultID string, filter VulnerabilityFilter) ([]Vulnerability, error) {
-	allVulns, err := c.GetAllVulnPackagesV2(resultID)
+	allVulns, err := c.GetScanResultVulnerabilities(resultID)
 	if err != nil {
 		return nil, err
 	}
@@ -308,8 +292,8 @@ func (c *Client) ListCriticalAndHighVulnerabilities(resultID string) ([]Vulnerab
 
 // ScanResultsResponse represents the scan results API response
 type ScanResultsResponse struct {
-	Data []ScanResult          `json:"data"`
-	Page ScanResultsPageInfo   `json:"page,omitempty"`
+	Data []ScanResult        `json:"data"`
+	Page ScanResultsPageInfo `json:"page,omitempty"`
 }
 
 // ScanResultsPageInfo represents pagination information for scan results API
@@ -320,27 +304,33 @@ type ScanResultsPageInfo struct {
 
 // ScanResult represents a single scan result entry
 type ScanResult struct {
-	ResultID             string                 `json:"resultId"`
-	CreatedAt            string                 `json:"createdAt"`
-	PullString           string                 `json:"pullString,omitempty"`
-	Scope                map[string]interface{} `json:"scope,omitempty"`
-	VulnTotalBySeverity  VulnSeverityCount     `json:"vulnTotalBySeverity"`
+	ResultID                   string                 `json:"resultId"`
+	CreatedAt                  string                 `json:"createdAt,omitempty"`
+	PullString                 string                 `json:"pullString,omitempty"`
+	ImageID                    string                 `json:"imageId,omitempty"`
+	PolicyEvaluationResult     string                 `json:"policyEvaluationResult,omitempty"`
+	Scope                      map[string]interface{} `json:"scope,omitempty"`
+	VulnTotalBySeverity        VulnSeverityCount      `json:"vulnTotalBySeverity"`
+	MainAssetName              string                 `json:"mainAssetName,omitempty"`
+	ResourceID                 string                 `json:"resourceId,omitempty"`
+	SbomID                     string                 `json:"sbomId,omitempty"`
+	IsRiskSpotlightEnabled     bool                   `json:"isRiskSpotlightEnabled,omitempty"`
+	RunningVulnTotalBySeverity *VulnSeverityCount     `json:"runningVulnTotalBySeverity,omitempty"`
 }
 
 // VulnSeverityCount represents vulnerability counts by severity
 type VulnSeverityCount struct {
-	Critical int `json:"critical"`
-	High     int `json:"high"`
-	Medium   int `json:"medium"`
-	Low      int `json:"low"`
+	Critical   int `json:"critical"`
+	High       int `json:"high"`
+	Medium     int `json:"medium"`
+	Low        int `json:"low"`
+	Negligible int `json:"negligible,omitempty"`
 }
-
 
 // ScanMetadata contains scan metadata
 type ScanMetadata struct {
 	PullString string `json:"pullString,omitempty"`
 }
-
 
 // PackageInfo represents package information
 type PackageInfo struct {
@@ -350,8 +340,8 @@ type PackageInfo struct {
 
 // AcceptedRisksResponse represents the accepted risks API response
 type AcceptedRisksResponse struct {
-	Data []AcceptedRisk            `json:"data"`
-	Page AcceptedRisksPageInfo     `json:"page"`
+	Data []AcceptedRisk        `json:"data"`
+	Page AcceptedRisksPageInfo `json:"page"`
 }
 
 // AcceptedRisk represents an accepted risk entry
@@ -361,23 +351,151 @@ type AcceptedRisk struct {
 	Description    string `json:"description"`
 }
 
-// VulnPkg represents a vulnerability-package pair from V2 API
-type VulnPkg struct {
-	ID             string    `json:"id"`
-	Vuln           VulnV2    `json:"vuln"`
-	Package        PackageV2 `json:"package"`
-	FixedInVersion string    `json:"fixedInVersion,omitempty"`
-}
-
-// VulnPkgResponse represents the API response for vulnerability packages
-type VulnPkgResponse struct {
-	Page PageInfo  `json:"page"`
-	Data []VulnPkg `json:"data"`
-}
-
 // AcceptedRisksPageInfo represents pagination information for accepted risks API
 type AcceptedRisksPageInfo struct {
 	Next string `json:"next,omitempty"`
+}
+
+// FullScanResult represents the complete scan result from /secure/vulnerability/v1/results/{resultId}
+type FullScanResult struct {
+	AssetType       string                       `json:"assetType"`
+	Stage           string                       `json:"stage"`
+	Metadata        ScanResultMetadata           `json:"metadata"`
+	Packages        map[string]Package           `json:"packages"`
+	Vulnerabilities map[string]VulnerabilityInfo `json:"vulnerabilities"`
+	Layers          map[string]Layer             `json:"layers,omitempty"`
+	BaseImages      map[string]BaseImage         `json:"baseImages,omitempty"`
+	Policies        PolicyEvaluations            `json:"policies,omitempty"`
+	RiskAccepts     map[string]RiskAccept        `json:"riskAccepts,omitempty"`
+	Producer        Producer                     `json:"producer,omitempty"`
+}
+
+// ScanResultMetadata represents the metadata section of a full scan result
+type ScanResultMetadata struct {
+	Architecture string            `json:"architecture,omitempty"`
+	Author       string            `json:"author,omitempty"`
+	BaseOS       string            `json:"baseOs,omitempty"`
+	CreatedAt    string            `json:"createdAt,omitempty"`
+	Digest       string            `json:"digest,omitempty"`
+	ImageID      string            `json:"imageId,omitempty"`
+	Labels       map[string]string `json:"labels,omitempty"`
+	OS           string            `json:"os,omitempty"`
+	PullString   string            `json:"pullString,omitempty"`
+	Size         int64             `json:"size,omitempty"`
+}
+
+// Package represents a package in the scan result
+type Package struct {
+	Name                string   `json:"name"`
+	Version             string   `json:"version"`
+	Type                string   `json:"type"`
+	Path                string   `json:"path,omitempty"`
+	License             string   `json:"license,omitempty"`
+	LayerRef            string   `json:"layerRef,omitempty"`
+	IsRunning           bool     `json:"isRunning,omitempty"`
+	IsRemoved           bool     `json:"isRemoved,omitempty"`
+	SuggestedFix        string   `json:"suggestedFix,omitempty"`
+	VulnerabilitiesRefs []string `json:"vulnerabilitiesRefs,omitempty"`
+	RiskAcceptRefs      []string `json:"riskAcceptRefs,omitempty"`
+}
+
+// VulnerabilityInfo represents a vulnerability in the scan result
+type VulnerabilityInfo struct {
+	Name              string                 `json:"name"`
+	Severity          string                 `json:"severity"`
+	DisclosureDate    string                 `json:"disclosureDate,omitempty"`
+	SolutionDate      string                 `json:"solutionDate,omitempty"`
+	FixVersion        string                 `json:"fixVersion,omitempty"`
+	Exploitable       bool                   `json:"exploitable,omitempty"`
+	PackageRef        string                 `json:"packageRef,omitempty"`
+	MainProvider      string                 `json:"mainProvider,omitempty"`
+	CvssScore         *CvssScore             `json:"cvssScore,omitempty"`
+	CisaKev           *CisaKev               `json:"cisaKev,omitempty"`
+	Exploit           *ExploitInfo           `json:"exploit,omitempty"`
+	ProvidersMetadata map[string]interface{} `json:"providersMetadata,omitempty"`
+	RiskAcceptRefs    []string               `json:"riskAcceptRefs,omitempty"`
+}
+
+// CisaKev represents CISA Known Exploited Vulnerabilities information
+type CisaKev struct {
+	DueDate                    string `json:"dueDate,omitempty"`
+	KnownRansomwareCampaignUse bool   `json:"knownRansomwareCampaignUse,omitempty"`
+	PublishDate                string `json:"publishDate,omitempty"`
+}
+
+// ExploitInfo represents exploit information
+type ExploitInfo struct {
+	Links           []string `json:"links,omitempty"`
+	PublicationDate string   `json:"publicationDate,omitempty"`
+}
+
+// Layer represents a container image layer
+type Layer struct {
+	ID            string   `json:"id,omitempty"`
+	Digest        string   `json:"digest,omitempty"`
+	Command       string   `json:"command,omitempty"`
+	Size          int64    `json:"size,omitempty"`
+	BaseImagesRef []string `json:"baseImagesRef,omitempty"`
+}
+
+// BaseImage represents a base image
+type BaseImage struct {
+	PullStrings []string `json:"pullStrings,omitempty"`
+}
+
+// PolicyEvaluations represents policy evaluation results
+type PolicyEvaluations struct {
+	GlobalEvaluation string             `json:"globalEvaluation,omitempty"`
+	Evaluations      []PolicyEvaluation `json:"evaluations,omitempty"`
+}
+
+// PolicyEvaluation represents a single policy evaluation
+type PolicyEvaluation struct {
+	Identifier  string         `json:"identifier,omitempty"`
+	Name        string         `json:"name,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Evaluation  string         `json:"evaluation,omitempty"`
+	CreatedAt   string         `json:"createdAt,omitempty"`
+	UpdatedAt   string         `json:"updatedAt,omitempty"`
+	Bundles     []PolicyBundle `json:"bundles,omitempty"`
+}
+
+// PolicyBundle represents a policy bundle
+type PolicyBundle struct {
+	Identifier string       `json:"identifier,omitempty"`
+	Name       string       `json:"name,omitempty"`
+	Type       string       `json:"type,omitempty"`
+	Rules      []PolicyRule `json:"rules,omitempty"`
+}
+
+// PolicyRule represents a policy rule
+type PolicyRule struct {
+	RuleID           string                   `json:"ruleId,omitempty"`
+	RuleType         string                   `json:"ruleType,omitempty"`
+	Description      string                   `json:"description,omitempty"`
+	EvaluationResult string                   `json:"evaluationResult,omitempty"`
+	FailureType      string                   `json:"failureType,omitempty"`
+	Failures         []map[string]interface{} `json:"failures,omitempty"`
+	Predicates       []map[string]interface{} `json:"predicates,omitempty"`
+}
+
+// RiskAccept represents an accepted risk
+type RiskAccept struct {
+	ID             string                   `json:"id,omitempty"`
+	EntityType     string                   `json:"entityType,omitempty"`
+	EntityValue    string                   `json:"entityValue,omitempty"`
+	Reason         string                   `json:"reason,omitempty"`
+	Description    string                   `json:"description,omitempty"`
+	ExpirationDate string                   `json:"expirationDate,omitempty"`
+	Status         string                   `json:"status,omitempty"`
+	CreatedAt      string                   `json:"createdAt,omitempty"`
+	UpdatedAt      string                   `json:"updatedAt,omitempty"`
+	Context        []map[string]interface{} `json:"context,omitempty"`
+}
+
+// Producer represents the producer information
+type Producer struct {
+	ProducedAt string `json:"producedAt,omitempty"`
 }
 
 // ListPipelineResults retrieves all pipeline scan results
@@ -387,6 +505,11 @@ func (c *Client) ListPipelineResults() ([]ScanResult, error) {
 
 // ListPipelineResultsWithDays retrieves pipeline scan results for specified days using pagination and client-side filtering
 func (c *Client) ListPipelineResultsWithDays(days int) ([]ScanResult, error) {
+	return c.ListPipelineResultsWithFilter(days, "")
+}
+
+// ListPipelineResultsWithFilter retrieves pipeline scan results with optional freeText filter
+func (c *Client) ListPipelineResultsWithFilter(days int, freeTextFilter string) ([]ScanResult, error) {
 	cutoffTime := time.Now().AddDate(0, 0, -days)
 	allResults := []ScanResult{}
 	cursor := ""
@@ -396,12 +519,15 @@ func (c *Client) ListPipelineResultsWithDays(days int) ([]ScanResult, error) {
 	pageCount := 0
 
 	fmt.Printf("Starting pipeline cursor pagination fetch. Cutoff time: %s\n", cutoffTime.Format(time.RFC3339))
+	if freeTextFilter != "" {
+		fmt.Printf("Filter: freeText in (\"%s\")\n", freeTextFilter)
+	}
 
 	for pageCount = 0; pageCount < maxPages; pageCount++ {
 		fmt.Printf("Fetching page %d: cursor=%s, limit=%d\n", pageCount, cursor, limit)
 
 		// cursorでページングデータ取得
-		results, nextCursor, err := c.fetchPipelineResultsWithPagination(cursor, limit)
+		results, nextCursor, err := c.fetchPipelineResultsWithPagination(cursor, limit, freeTextFilter)
 		if err != nil {
 			return nil, err
 		}
@@ -552,13 +678,28 @@ func (c *Client) ListRuntimeResultsWithDays(days int) ([]ScanResult, error) {
 }
 
 // fetchPipelineResultsWithPagination retrieves a single page of pipeline results using cursor
-func (c *Client) fetchPipelineResultsWithPagination(cursor string, limit int) ([]ScanResult, string, error) {
+func (c *Client) fetchPipelineResultsWithPagination(cursor string, limit int, freeTextFilter string) ([]ScanResult, string, error) {
 	var endpoint string
-	if cursor == "" {
-		endpoint = fmt.Sprintf("/pipeline-results?limit=%d", limit)
-	} else {
-		endpoint = fmt.Sprintf("/pipeline-results?limit=%d&cursor=%s", limit, cursor)
+
+	// Build base query parameters
+	params := fmt.Sprintf("limit=%d", limit)
+	if cursor != "" {
+		params += fmt.Sprintf("&cursor=%s", cursor)
 	}
+
+	// Add filter parameter if freeTextFilter is provided
+	if freeTextFilter != "" {
+		// URL encode the filter: filter=freeText in ("value")
+		filterValue := fmt.Sprintf("freeText in (\"%s\")", freeTextFilter)
+		// Simple URL encoding for the filter parameter
+		filterValue = strings.ReplaceAll(filterValue, " ", "%20")
+		filterValue = strings.ReplaceAll(filterValue, "\"", "%22")
+		filterValue = strings.ReplaceAll(filterValue, "(", "%28")
+		filterValue = strings.ReplaceAll(filterValue, ")", "%29")
+		params += fmt.Sprintf("&filter=%s", filterValue)
+	}
+
+	endpoint = fmt.Sprintf("/pipeline-results?%s", params)
 
 	resp, err := c.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -672,9 +813,9 @@ func (c *Client) fetchRuntimeResultsByAssetType(assetType string, limit int) ([]
 	return allResults, nil
 }
 
-// GetScanResultVulnerabilities retrieves vulnerabilities for a specific scan result using V2 API
-func (c *Client) GetScanResultVulnerabilities(resultID string) ([]Vulnerability, error) {
-	endpoint := fmt.Sprintf("/api/scanning/scanresults/v2/results/%s/vulnPkgs", resultID)
+// GetFullScanResult retrieves the complete scan result using V1 API
+func (c *Client) GetFullScanResult(resultID string) (*FullScanResult, error) {
+	endpoint := fmt.Sprintf("/results/%s", resultID)
 	resp, err := c.makeRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -690,42 +831,89 @@ func (c *Client) GetScanResultVulnerabilities(resultID string) ([]Vulnerability,
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var vulnResponse VulnPkgResponse
-	if err := json.NewDecoder(resp.Body).Decode(&vulnResponse); err != nil {
+	var fullResult FullScanResult
+	if err := json.NewDecoder(resp.Body).Decode(&fullResult); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	// Convert VulnPkg to Vulnerability for compatibility
-	vulnerabilities := make([]Vulnerability, 0, len(vulnResponse.Data))
-	for _, vulnPkg := range vulnResponse.Data {
-		vuln := Vulnerability{
-			ID: vulnPkg.ID,
-			Vuln: VulnV2{
-				Name:           vulnPkg.Vuln.Name,
-				Severity:       vulnPkg.Vuln.Severity,
-				CvssScore:      vulnPkg.Vuln.CvssScore,
-				DisclosureDate: vulnPkg.Vuln.DisclosureDate,
-				Exploitable:    vulnPkg.Vuln.Exploitable,
-			},
-			Package: PackageV2{
-				Name:    vulnPkg.Package.Name,
-				Version: vulnPkg.Package.Version,
-				Type:    vulnPkg.Package.Type,
-			},
-		}
+	return &fullResult, nil
+}
 
-		// Set FixedInVersion and compute Fixable
-		if vulnPkg.FixedInVersion != "" {
-			vuln.FixedInVersion = &vulnPkg.FixedInVersion
-			vuln.Vuln.Fixable = true
-		} else {
-			vuln.Vuln.Fixable = false
-		}
+// GetScanResultVulnerabilities retrieves vulnerabilities for a specific scan result using V1 API
+// This method constructs vulnerability-package pairs from the full scan result
+func (c *Client) GetScanResultVulnerabilities(resultID string) ([]Vulnerability, error) {
+	fullResult, err := c.GetFullScanResult(resultID)
+	if err != nil {
+		return nil, err
+	}
 
-		vulnerabilities = append(vulnerabilities, vuln)
+	// packages と vulnerabilities の参照関係を辿って Vulnerability リストを構築
+	vulnerabilities := make([]Vulnerability, 0)
+
+	for pkgID, pkg := range fullResult.Packages {
+		for _, vulnRef := range pkg.VulnerabilitiesRefs {
+			vulnInfo, ok := fullResult.Vulnerabilities[vulnRef]
+			if !ok {
+				continue // 参照が見つからない場合はスキップ
+			}
+
+			// VulnerabilityInfo から Vulnerability 構造体に変換
+			vuln := Vulnerability{
+				ID: vulnRef,
+				Vuln: VulnV2{
+					Name:           vulnInfo.Name,
+					Severity:       severityStringToInt(vulnInfo.Severity),
+					CvssScore:      0, // CvssScoreから取得
+					DisclosureDate: vulnInfo.DisclosureDate,
+					Exploitable:    vulnInfo.Exploitable,
+					Fixable:        vulnInfo.FixVersion != "",
+				},
+				Package: PackageV2{
+					ID:      pkgID,
+					Name:    pkg.Name,
+					Version: pkg.Version,
+					Type:    pkg.Type,
+					Running: pkg.IsRunning,
+					Removed: pkg.IsRemoved,
+				},
+			}
+
+			// CvssScore を設定
+			if vulnInfo.CvssScore != nil {
+				vuln.Vuln.CvssScore = vulnInfo.CvssScore.Score
+				vuln.Vuln.CvssVersion = vulnInfo.CvssScore.Version
+			}
+
+			// FixedInVersion を設定
+			if vulnInfo.FixVersion != "" {
+				vuln.FixedInVersion = &vulnInfo.FixVersion
+			}
+
+			vulnerabilities = append(vulnerabilities, vuln)
+		}
 	}
 
 	return vulnerabilities, nil
+}
+
+// severityStringToInt converts severity string to integer
+func severityStringToInt(severity string) int {
+	switch strings.ToLower(severity) {
+	case "critical":
+		return 4
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	case "low":
+		return 1
+	case "negligible":
+		return 5
+	case "none":
+		return 6
+	default:
+		return 0
+	}
 }
 
 // ListAcceptedRisks retrieves all accepted risks with pagination
@@ -792,83 +980,6 @@ func (c *Client) CreateAcceptedRisk(entityValue string, expirationDays int, desc
 	}
 
 	return nil
-}
-
-// GetVulnPackagesV2 retrieves vulnerability packages using the v2 scanning API
-func (c *Client) GetVulnPackagesV2(resultID string, limit int, offset int, sortBy string, order string) (*VulnPackageResponseV2, error) {
-	endpoint := fmt.Sprintf("/api/scanning/scanresults/v2/results/%s/vulnPkgs", resultID)
-
-	// Build query parameters
-	params := fmt.Sprintf("?limit=%d&offset=%d", limit, offset)
-	if sortBy != "" {
-		params += fmt.Sprintf("&sort=%s", sortBy)
-	}
-	if order != "" {
-		params += fmt.Sprintf("&order=%s", order)
-	}
-
-	endpoint += params
-
-	resp, err := c.makeRequest("GET", endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var vulnResp VulnPackageResponseV2
-	if err := json.NewDecoder(resp.Body).Decode(&vulnResp); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &vulnResp, nil
-}
-
-// GetAllVulnPackagesV2 retrieves all vulnerability packages for a scan result with pagination
-func (c *Client) GetAllVulnPackagesV2(resultID string) ([]Vulnerability, error) {
-	var allVulns []Vulnerability
-	limit := 100
-	offset := 0
-
-	for {
-		resp, err := c.GetVulnPackagesV2(resultID, limit, offset, "vulnSeverity", "desc")
-		if err != nil {
-			return nil, fmt.Errorf("failed to get vulnerability packages at offset %d: %w", offset, err)
-		}
-
-		// Convert VulnPackageV2 to Vulnerability and set fixable based on fixedInVersion
-		for _, vulnPkg := range resp.Data {
-			vuln := Vulnerability{
-				ID:             vulnPkg.ID,
-				Vuln:           vulnPkg.Vuln,
-				Package:        vulnPkg.Package,
-				FixedInVersion: nil,
-			}
-
-			// Set FixedInVersion and compute Fixable
-			if vulnPkg.FixedInVersion != "" {
-				vuln.FixedInVersion = &vulnPkg.FixedInVersion
-				vuln.Vuln.Fixable = true
-			} else {
-				vuln.Vuln.Fixable = false
-			}
-
-			allVulns = append(allVulns, vuln)
-		}
-
-		// Check if we've retrieved all data
-		if len(resp.Data) < limit || offset + len(resp.Data) >= resp.Page.Matched {
-			break
-		}
-
-		offset += limit
-	}
-
-	return allVulns, nil
 }
 
 // Helper function to convert severity int to string

@@ -19,30 +19,31 @@ const version = "1.0.0"
 
 func main() {
 	var (
-		configFile         = flag.String("config", "", "Path to configuration file")
-		apiToken           = flag.String("token", "", "Sysdig API token")
-		apiURL             = flag.String("url", "https://us2.app.sysdig.com", "Sysdig API base URL")
-		command            = flag.String("command", "list", "Command to execute: list, get, update, filter, summary, cache, pipeline, runtime, pipeline-cache, runtime-cache, scan-details, accepted-risks")
-		vulnID             = flag.String("id", "", "Vulnerability ID (required for get/update commands)")
-		resultID           = flag.String("result-id", "", "Scan Result ID (required for scan-details command)")
-		severity           = flag.String("severity", "", "Filter by severity (critical,high,medium,low)")
-		fixableOnly        = flag.Bool("fixable", false, "Show only fixable vulnerabilities")
-		exploitable        = flag.Bool("exploitable", false, "Show only exploitable vulnerabilities")
-		cachePath          = flag.String("cache", "./cache/vulnerabilities.db", "Path to cache file")
-		cacheType          = flag.String("cache-type", "sqlite", "Cache type: sqlite or csv")
-		outputFormat       = flag.String("output", "table", "Output format: table, detailed, summary, aws")
-		aboveHigh          = flag.Bool("above-high", false, "Show only high and critical severity vulnerabilities")
-		onlyNotAccepted    = flag.Bool("only-not-accepted", false, "Show only vulnerabilities not accepted as risks")
-		showHelp           = flag.Bool("help", false, "Show help")
-		showVersion        = flag.Bool("version", false, "Show version")
-		createAcceptance   = flag.String("create-acceptance", "", "Create acceptance for CVE (comma-separated list)")
-		expirationDays     = flag.Int("expiration-days", 30, "Expiration days for risk acceptance (default 30)")
-		daysPeriod         = flag.Int("days", 7, "Number of days to retrieve results from (default 7, max 14)")
-	batchSize          = flag.Int("batch-size", 2, "Number of concurrent API requests (default 2)")
-	apiDelay           = flag.Int("api-delay", 3, "Delay in seconds between API batches (default 3)")
-	runtimeWorkloadLimit = flag.Int("runtime-workload-limit", 300, "Maximum number of workload runtime results to retrieve (default 300, 0=unlimited)")
-	runtimeHostLimit     = flag.Int("runtime-host-limit", 0, "Maximum number of host runtime results to retrieve (default 0=unlimited)")
-	runtimeContainerLimit = flag.Int("runtime-container-limit", 0, "Maximum number of container runtime results to retrieve (default 0=unlimited)")
+		configFile            = flag.String("config", "", "Path to configuration file")
+		apiToken              = flag.String("token", "", "Sysdig API token")
+		apiURL                = flag.String("url", "https://us2.app.sysdig.com", "Sysdig API base URL")
+		command               = flag.String("command", "list", "Command to execute: list, get, update, filter, summary, cache, pipeline, runtime, pipeline-cache, runtime-cache, scan-details, accepted-risks")
+		vulnID                = flag.String("id", "", "Vulnerability ID (required for get/update commands)")
+		resultID              = flag.String("result-id", "", "Scan Result ID (required for scan-details command)")
+		severity              = flag.String("severity", "", "Filter by severity (critical,high,medium,low)")
+		fixableOnly           = flag.Bool("fixable", false, "Show only fixable vulnerabilities")
+		exploitable           = flag.Bool("exploitable", false, "Show only exploitable vulnerabilities")
+		cachePath             = flag.String("cache", "./cache/vulnerabilities.db", "Path to cache file")
+		cacheType             = flag.String("cache-type", "sqlite", "Cache type: sqlite or csv")
+		outputFormat          = flag.String("output", "table", "Output format: table, detailed, summary, aws")
+		aboveHigh             = flag.Bool("above-high", false, "Show only high and critical severity vulnerabilities")
+		onlyNotAccepted       = flag.Bool("only-not-accepted", false, "Show only vulnerabilities not accepted as risks")
+		showHelp              = flag.Bool("help", false, "Show help")
+		showVersion           = flag.Bool("version", false, "Show version")
+		createAcceptance      = flag.String("create-acceptance", "", "Create acceptance for CVE (comma-separated list)")
+		expirationDays        = flag.Int("expiration-days", 30, "Expiration days for risk acceptance (default 30)")
+		daysPeriod            = flag.Int("days", 7, "Number of days to retrieve results from (default 7, max 14)")
+		freeTextFilter        = flag.String("filter", "", "Free text filter for pipeline results (searches full image name)")
+		batchSize             = flag.Int("batch-size", 2, "Number of concurrent API requests (default 2)")
+		apiDelay              = flag.Int("api-delay", 3, "Delay in seconds between API batches (default 3)")
+		runtimeWorkloadLimit  = flag.Int("runtime-workload-limit", 300, "Maximum number of workload runtime results to retrieve (default 300, 0=unlimited)")
+		runtimeHostLimit      = flag.Int("runtime-host-limit", 0, "Maximum number of host runtime results to retrieve (default 0=unlimited)")
+		runtimeContainerLimit = flag.Int("runtime-container-limit", 0, "Maximum number of container runtime results to retrieve (default 0=unlimited)")
 	)
 	flag.Parse()
 
@@ -103,11 +104,11 @@ func main() {
 		}
 		err = cacheVulnerabilities(client, *resultID, *cacheType, *cachePath, *severity, *fixableOnly, *exploitable)
 	case "pipeline":
-		err = showPipelineResults(client, *outputFormat, *daysPeriod)
+		err = showPipelineResults(client, *outputFormat, *daysPeriod, *freeTextFilter)
 	case "runtime":
 		err = showRuntimeResults(client, *outputFormat, *daysPeriod, *runtimeWorkloadLimit, *runtimeHostLimit, *runtimeContainerLimit)
 	case "pipeline-cache":
-		err = cachePipelineResults(client, *cachePath, *daysPeriod, *batchSize, *apiDelay)
+		err = cachePipelineResults(client, *cachePath, *daysPeriod, *batchSize, *apiDelay, *freeTextFilter)
 	case "runtime-cache":
 		err = cacheRuntimeResults(client, *cachePath, *daysPeriod, *batchSize, *apiDelay, *runtimeWorkloadLimit, *runtimeHostLimit, *runtimeContainerLimit)
 	case "scan-details":
@@ -369,9 +370,13 @@ func cacheVulnerabilities(client *sysdig.Client, resultID, cacheTypeStr, cachePa
 	return nil
 }
 
-func showPipelineResults(client *sysdig.Client, outputFormat string, days int) error {
-	fmt.Printf("Getting pipeline scan results (last %d days)...\n", days)
-	results, err := client.ListPipelineResultsWithDays(days)
+func showPipelineResults(client *sysdig.Client, outputFormat string, days int, freeTextFilter string) error {
+	if freeTextFilter != "" {
+		fmt.Printf("Getting pipeline scan results (last %d days, filter: %s)...\n", days, freeTextFilter)
+	} else {
+		fmt.Printf("Getting pipeline scan results (last %d days)...\n", days)
+	}
+	results, err := client.ListPipelineResultsWithFilter(days, freeTextFilter)
 	if err != nil {
 		return fmt.Errorf("failed to list pipeline results: %w", err)
 	}
@@ -613,11 +618,15 @@ func createAcceptedRisks(client *sysdig.Client, cveList string, expirationDays i
 	return nil
 }
 
-func cachePipelineResults(client *sysdig.Client, cachePath string, days int, batchSize int, apiDelay int) error {
-	fmt.Printf("Caching pipeline scan results (last %d days)...\n", days)
+func cachePipelineResults(client *sysdig.Client, cachePath string, days int, batchSize int, apiDelay int, freeTextFilter string) error {
+	if freeTextFilter != "" {
+		fmt.Printf("Caching pipeline scan results (last %d days, filter: %s)...\n", days, freeTextFilter)
+	} else {
+		fmt.Printf("Caching pipeline scan results (last %d days)...\n", days)
+	}
 
 	// Get pipeline results
-	results, err := client.ListPipelineResultsWithDays(days)
+	results, err := client.ListPipelineResultsWithFilter(days, freeTextFilter)
 	if err != nil {
 		return fmt.Errorf("failed to list pipeline results: %w", err)
 	}
