@@ -28,13 +28,13 @@ sqlite3 -header -csv data/pipeline_scan_results.db "SELECT * FROM scan_results L
 sqlite3 -separator $'\t' data/pipeline_scan_results.db "SELECT * FROM scan_results LIMIT 5;"
 
 # 結果をファイルに出力
-sqlite3 -header -csv data/pipeline_scan_results.db "SELECT * FROM scan_vulnerabilities WHERE severity='critical';" > critical_vulns.csv
+sqlite3 -header -csv data/pipeline_scan_results.db "SELECT * FROM scan_vulnerabilities WHERE LOWER(severity)='critical';" > critical_vulns.csv
 
 # SQLファイルの実行
 sqlite3 data/pipeline_scan_results.db < analysis_queries.sql
 
 # ワンライナークエリ実行（シェルスクリプト用）
-sqlite3 data/pipeline_scan_results.db "SELECT COUNT(*) FROM scan_vulnerabilities WHERE severity IN ('critical', 'high') AND fixable = 1 AND exploitable = 1;"
+sqlite3 data/pipeline_scan_results.db "SELECT COUNT(*) FROM scan_vulnerabilities WHERE LOWER(severity) IN ('critical', 'high') AND fixable = 1 AND exploitable = 1;"
 ```
 
 ### SQLite CLI 内での便利コマンド
@@ -82,7 +82,7 @@ sqlite3 data/pipeline_scan_results.db "SELECT COUNT(*) FROM scan_vulnerabilities
 
 ```bash
 # 優先対応が必要な脆弱性の件数をすぐに確認
-sqlite3 data/pipeline_scan_results.db "SELECT COUNT(*) as priority_count FROM scan_vulnerabilities WHERE severity IN ('critical', 'high') AND fixable = 1 AND exploitable = 1;"
+sqlite3 data/pipeline_scan_results.db "SELECT COUNT(*) as priority_count FROM scan_vulnerabilities WHERE LOWER(severity) IN ('critical', 'high') AND fixable = 1 AND exploitable = 1;"
 
 # AWSアカウント別の危険度確認
 sqlite3 -header -csv data/pipeline_scan_results.db "SELECT aws_account_name, SUM(critical_count) as critical, SUM(high_count) as high FROM scan_results GROUP BY aws_account_name ORDER BY critical DESC;" > account_risk.csv
@@ -193,7 +193,7 @@ SELECT severity,
        SUM(CASE WHEN exploitable = 1 THEN 1 ELSE 0 END) as exploitable,
        SUM(CASE WHEN fixable = 1 AND exploitable = 1 THEN 1 ELSE 0 END) as fixable_exploitable
 FROM scan_vulnerabilities
-WHERE severity IN ('critical', 'high')
+WHERE LOWER(severity) IN ('critical', 'high')
 GROUP BY severity;
 ```
 
@@ -215,11 +215,11 @@ SELECT DISTINCT
     sr.pull_string
 FROM scan_vulnerabilities sv
 JOIN scan_results sr ON sv.result_id = sr.result_id
-WHERE sv.severity IN ('critical', 'high')
+WHERE LOWER(sv.severity) IN ('critical', 'high')
   AND sv.fixable = 1
   AND sv.exploitable = 1
 ORDER BY
-    CASE sv.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 END,
+    CASE LOWER(sv.severity) WHEN 'critical' THEN 1 WHEN 'high' THEN 2 END,
     sv.vuln_name;
 ```
 
@@ -277,8 +277,8 @@ LIMIT 20;
 SELECT
     sv.package_name,
     COUNT(*) as vuln_count,
-    SUM(CASE WHEN sv.severity = 'critical' THEN 1 ELSE 0 END) as critical_count,
-    SUM(CASE WHEN sv.severity = 'high' THEN 1 ELSE 0 END) as high_count,
+    SUM(CASE WHEN LOWER(sv.severity) = 'critical' THEN 1 ELSE 0 END) as critical_count,
+    SUM(CASE WHEN LOWER(sv.severity) = 'high' THEN 1 ELSE 0 END) as high_count,
     SUM(CASE WHEN sv.fixable = 1 THEN 1 ELSE 0 END) as fixable_count,
     SUM(CASE WHEN sv.exploitable = 1 THEN 1 ELSE 0 END) as exploitable_count
 FROM scan_vulnerabilities sv
@@ -317,7 +317,7 @@ SELECT
     GROUP_CONCAT(DISTINCT sr.workload_type) as workload_types
 FROM scan_vulnerabilities sv
 JOIN scan_results sr ON sv.result_id = sr.result_id
-WHERE sv.severity IN ('critical', 'high')
+WHERE LOWER(sv.severity) IN ('critical', 'high')
   AND sv.fixable = 1
 GROUP BY sv.vuln_name, sv.severity
 HAVING affected_workloads >= 5
@@ -339,7 +339,7 @@ SELECT DISTINCT
     sr.pull_string as Image
 FROM scan_vulnerabilities sv
 JOIN scan_results sr ON sv.result_id = sr.result_id
-WHERE sv.severity = 'critical'
+WHERE LOWER(sv.severity) = 'critical'
   AND sv.fixable = 1
   AND sv.exploitable = 1
 ORDER BY sv.vuln_name;
@@ -354,7 +354,7 @@ SELECT DISTINCT
     sr.pull_string as Image
 FROM scan_vulnerabilities sv
 JOIN scan_results sr ON sv.result_id = sr.result_id
-WHERE sv.severity = 'high'
+WHERE LOWER(sv.severity) = 'high'
   AND sv.fixable = 1
   AND sv.exploitable = 1
 ORDER BY sv.vuln_name;
@@ -383,11 +383,11 @@ SELECT DISTINCT
     sr.pull_string as ContainerImage
 FROM scan_vulnerabilities sv
 JOIN scan_results sr ON sv.result_id = sr.result_id
-WHERE sv.severity IN ('critical', 'high')
+WHERE LOWER(sv.severity) IN ('critical', 'high')
   AND sv.fixable = 1
   AND sv.exploitable = 1
 ORDER BY
-    CASE sv.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 END,
+    CASE LOWER(sv.severity) WHEN 'critical' THEN 1 WHEN 'high' THEN 2 END,
     sv.vuln_name;
 
 .output stdout
@@ -431,7 +431,7 @@ sqlite3 data/pipeline_scan_results.db
 sqlite3 data/pipeline_scan_results.db "
 SELECT COUNT(*) as critical_fixable_exploitable
 FROM scan_vulnerabilities
-WHERE severity = 'critical' AND fixable = 1 AND exploitable = 1;"
+WHERE LOWER(severity) = 'critical' AND fixable = 1 AND exploitable = 1;"
 
 # CSVで出力
 sqlite3 -header -csv data/pipeline_scan_results.db "
@@ -439,8 +439,8 @@ SELECT DISTINCT vuln_name, severity, package_name, fixed_version,
        aws_account_name, workload_name
 FROM scan_vulnerabilities sv
 JOIN scan_results sr ON sv.result_id = sr.result_id
-WHERE sv.severity IN ('critical', 'high') AND sv.fixable = 1 AND sv.exploitable = 1
-ORDER BY severity, vuln_name;" > priority_vulns.csv
+WHERE LOWER(sv.severity) IN ('critical', 'high') AND sv.fixable = 1 AND sv.exploitable = 1
+ORDER BY CASE LOWER(severity) WHEN 'critical' THEN 1 WHEN 'high' THEN 2 END, vuln_name;" > priority_vulns.csv
 ```
 
 ## Tips
