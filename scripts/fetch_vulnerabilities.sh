@@ -31,10 +31,10 @@ set -e
 
 # デフォルト値
 DEFAULT_DAYS=7
-DEFAULT_PERF_LEVEL=10  # デフォルトは中間的な安全値
+DEFAULT_PERF_LEVEL=25  # デフォルトは速度重視（API errorが多い場合は20, 15と減らす）
 
-# Runtime制限のデフォルト値
-DEFAULT_RUNTIME_WORKLOAD_LIMIT=300
+# Runtime制限のデフォルト値（critical/high絞り込み後の件数制限）
+DEFAULT_RUNTIME_WORKLOAD_LIMIT=0  # 0 = 無制限（全件取得）
 DEFAULT_RUNTIME_HOST_LIMIT=0      # 0 = 無制限
 DEFAULT_RUNTIME_CONTAINER_LIMIT=0 # 0 = 無制限
 
@@ -76,9 +76,9 @@ if [ ! -z "$2" ]; then
         fi
     fi
 else
-    # デフォルト値（安全側）
-    BATCH_SIZE=2
-    API_DELAY=3
+    # デフォルト値（perf 25相当：速度重視）
+    BATCH_SIZE=5
+    API_DELAY=1
 fi
 
 # Runtime制限値の設定
@@ -94,10 +94,10 @@ if ! [[ "$DAYS" =~ ^[0-9]+$ ]] || [ "$DAYS" -lt 1 ] || [ "$DAYS" -gt 14 ]; then
     echo "  直接指定: $0 [日数] [バッチサイズ] [API遅延秒数]"
     echo "  レベル指定: $0 [日数] perf [パフォーマンスレベル]"
     echo ""
-    echo "Runtime制限（デフォルト値）:"
-    echo "  - workload: ${DEFAULT_RUNTIME_WORKLOAD_LIMIT}件（大量データを制限）"
-    echo "  - host: 無制限（通常数十件）"
-    echo "  - container: 無制限（通常数十件）"
+    echo "Runtime制限（デフォルト値、critical/high絞り込み後）:"
+    echo "  - workload: 無制限（全件取得）"
+    echo "  - host: 無制限"
+    echo "  - container: 無制限"
     echo ""
     echo "例:"
     echo "  $0 7 2 3       # 直接指定"
@@ -139,14 +139,40 @@ RUNTIME_DB="${DATA_DIR}/runtime_vulnerabilities.db"
 PIPELINE_LOG="/tmp/pipeline_${TIMESTAMP}.log"
 RUNTIME_LOG="/tmp/runtime_${TIMESTAMP}.log"
 
-# バイナリパス（ビルド済みのものを使用）
-BINARY="./bin/sysdig-vuls"
+# OS判定してバイナリパスを決定
+OS_TYPE=$(uname -s)
+case "$OS_TYPE" in
+    Darwin)
+        BINARY="./bin/sysdig-vuls-darwin-arm64"
+        ;;
+    Linux)
+        BINARY="./bin/sysdig-vuls"
+        ;;
+    *)
+        echo "エラー: サポートされていないOS: $OS_TYPE"
+        exit 1
+        ;;
+esac
+
+echo "検出されたOS: $OS_TYPE"
+echo "使用するバイナリ: $BINARY"
 
 # バイナリの存在確認とビルド
 if [ ! -f "$BINARY" ]; then
     echo "バイナリが見つかりません。ビルドを実行します..."
     if command -v task &> /dev/null; then
-        task build
+        # OS別にビルドタスクを実行
+        case "$OS_TYPE" in
+            Darwin)
+                echo "macOS用にビルドします..."
+                task build-darwin-arm64
+                ;;
+            Linux)
+                echo "Linux用にビルドします..."
+                task build
+                ;;
+        esac
+
         if [ ! -f "$BINARY" ]; then
             echo "エラー: ビルドに失敗しました"
             exit 1
@@ -189,21 +215,21 @@ RUNTIME_PID=$!
 echo "  PID: ${RUNTIME_PID}"
 echo "  ログ: ${RUNTIME_LOG}"
 
-# プロセス監視関数
+# プロセス監視関数（20秒間隔で進捗表示）
 wait_for_completion() {
     local pid=$1
     local name=$2
     local log=$3
 
     while kill -0 $pid 2>/dev/null; do
-        # 最後の行を表示（進捗確認用）
+        # タイムスタンプ付きで最後の行を表示（進捗確認用）
         if [ -f "$log" ]; then
             last_line=$(tail -n 1 "$log" 2>/dev/null || echo "")
             if [ ! -z "$last_line" ]; then
-                echo "  [${name}] ${last_line}"
+                echo "$(date '+%H:%M:%S') [${name}] ${last_line}"
             fi
         fi
-        sleep 5
+        sleep 20
     done
 
     # 終了ステータスチェック

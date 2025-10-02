@@ -41,9 +41,9 @@ func main() {
 		freeTextFilter        = flag.String("filter", "", "Free text filter for pipeline results (searches full image name)")
 		batchSize             = flag.Int("batch-size", 2, "Number of concurrent API requests (default 2)")
 		apiDelay              = flag.Int("api-delay", 3, "Delay in seconds between API batches (default 3)")
-		runtimeWorkloadLimit  = flag.Int("runtime-workload-limit", 300, "Maximum number of workload runtime results to retrieve (default 300, 0=unlimited)")
-		runtimeHostLimit      = flag.Int("runtime-host-limit", 0, "Maximum number of host runtime results to retrieve (default 0=unlimited)")
-		runtimeContainerLimit = flag.Int("runtime-container-limit", 0, "Maximum number of container runtime results to retrieve (default 0=unlimited)")
+		runtimeWorkloadLimit  = flag.Int("runtime-workload-limit", 0, "Maximum number of workload runtime results to retrieve after filtering (default 0=unlimited)")
+		runtimeHostLimit      = flag.Int("runtime-host-limit", 0, "Maximum number of host runtime results to retrieve after filtering (default 0=unlimited)")
+		runtimeContainerLimit = flag.Int("runtime-container-limit", 0, "Maximum number of container runtime results to retrieve after filtering (default 0=unlimited)")
 	)
 	flag.Parse()
 
@@ -430,10 +430,48 @@ func showPipelineResults(client *sysdig.Client, outputFormat string, days int, f
 }
 
 func showRuntimeResults(client *sysdig.Client, outputFormat string, days int, workloadLimit, hostLimit, containerLimit int) error {
-	fmt.Printf("Getting runtime scan results with limits (workload:%d, host:%d, container:%d)...\n", workloadLimit, hostLimit, containerLimit)
-	results, err := client.ListRuntimeResultsWithLimits(days, workloadLimit, hostLimit, containerLimit)
+	fmt.Printf("Getting runtime scan results (days:%d, limits will be applied after filtering)...\n", days)
+
+	// Get all runtime results first
+	allResults, err := client.ListRuntimeResultsWithDays(days)
 	if err != nil {
 		return fmt.Errorf("failed to list runtime results: %w", err)
+	}
+
+	// Filter by critical/high and group by asset type
+	filteredByAssetType := map[string][]sysdig.ScanResult{
+		"workload":  {},
+		"host":      {},
+		"container": {},
+	}
+
+	for _, result := range allResults {
+		if result.VulnTotalBySeverity.Critical > 0 || result.VulnTotalBySeverity.High > 0 {
+			assetType := "workload" // default
+			if scope := result.Scope; scope != nil {
+				if at, ok := scope["asset.type"].(string); ok {
+					assetType = at
+				}
+			}
+			filteredByAssetType[assetType] = append(filteredByAssetType[assetType], result)
+		}
+	}
+
+	// Apply limits after filtering
+	limits := map[string]int{
+		"workload":  workloadLimit,
+		"host":      hostLimit,
+		"container": containerLimit,
+	}
+
+	results := make([]sysdig.ScanResult, 0)
+	for assetType, assetResults := range filteredByAssetType {
+		limit := limits[assetType]
+		if limit == 0 || limit > len(assetResults) {
+			results = append(results, assetResults...)
+		} else if limit > 0 {
+			results = append(results, assetResults[:limit]...)
+		}
 	}
 
 	// Create table
@@ -706,20 +744,54 @@ func cachePipelineResults(client *sysdig.Client, cachePath string, days int, bat
 }
 
 func cacheRuntimeResults(client *sysdig.Client, cachePath string, days int, batchSize int, apiDelay int, workloadLimit, hostLimit, containerLimit int) error {
-	fmt.Printf("Caching runtime scan results with limits (workload:%d, host:%d, container:%d)...\n", workloadLimit, hostLimit, containerLimit)
+	fmt.Printf("Caching runtime scan results with post-filter limits (workload:%d, host:%d, container:%d)...\n", workloadLimit, hostLimit, containerLimit)
 
-	// Get runtime results with limits
-	results, err := client.ListRuntimeResultsWithLimits(days, workloadLimit, hostLimit, containerLimit)
+	// Get all runtime results (no pre-filtering by count)
+	results, err := client.ListRuntimeResultsWithDays(days)
 	if err != nil {
 		return fmt.Errorf("failed to list runtime results: %w", err)
 	}
 
-	// Filter results to only those with critical or high vulnerabilities
-	filteredResults := make([]sysdig.ScanResult, 0)
+	// Filter results to only those with critical or high vulnerabilities, grouped by asset type
+	filteredByAssetType := map[string][]sysdig.ScanResult{
+		"workload":  {},
+		"host":      {},
+		"container": {},
+	}
+
 	for _, result := range results {
 		if result.VulnTotalBySeverity.Critical > 0 || result.VulnTotalBySeverity.High > 0 {
-			filteredResults = append(filteredResults, result)
+			// Determine asset type from scope
+			assetType := "workload" // default
+			if scope := result.Scope; scope != nil {
+				if at, ok := scope["asset.type"].(string); ok {
+					assetType = at
+				}
+			}
+			filteredByAssetType[assetType] = append(filteredByAssetType[assetType], result)
 		}
+	}
+
+	// Apply limits after filtering
+	limits := map[string]int{
+		"workload":  workloadLimit,
+		"host":      hostLimit,
+		"container": containerLimit,
+	}
+
+	filteredResults := make([]sysdig.ScanResult, 0)
+	for assetType, assetResults := range filteredByAssetType {
+		limit := limits[assetType]
+		if limit == 0 || limit > len(assetResults) {
+			// 0 means unlimited, or limit exceeds available
+			filteredResults = append(filteredResults, assetResults...)
+			fmt.Printf("Asset type '%s': %d results with critical/high (no limit applied)\n", assetType, len(assetResults))
+		} else if limit > 0 {
+			// Apply limit
+			filteredResults = append(filteredResults, assetResults[:limit]...)
+			fmt.Printf("Asset type '%s': %d results with critical/high (limited to %d)\n", assetType, len(assetResults), limit)
+		}
+		// limit < 0 means skip this asset type
 	}
 
 	fmt.Printf("Found %d runtime scan results (%d with critical/high vulnerabilities for detailed processing)\n", len(results), len(filteredResults))
