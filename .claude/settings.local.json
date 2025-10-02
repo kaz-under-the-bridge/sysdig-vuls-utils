@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(./scripts/fetch_vulnerabilities.sh:*)"
+      "Bash(./scripts/fetch_vulnerabilities.sh:*)",
+      "Bash(sqlite3:*)"
     ],
     "deny": [],
     "ask": []

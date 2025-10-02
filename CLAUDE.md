@@ -197,8 +197,16 @@ cp .devcontainer/.env.example .devcontainer/.env
 1. **APIメソッド追加**: `pkg/sysdig/client.go`に新しいメソッドを追加
 2. **CLIコマンド追加**: `cmd/sysdig-vuls/main.go`のswitchケースに追加
 3. **テスト追加**: `pkg/sysdig/client_test.go`にユニットテストを追加
-4. **品質チェック**: `task check`で全チェックを実行
-5. **ドキュメント更新**: README.mdとこのCLAUDE.mdを更新
+4. **コード整形**: `task fix`でimport整理とフォーマット実行（必須）
+5. **テスト実行**: `task test`でテスト実行（CGO_ENABLED=1で実行されるため、SQLiteテストも正常動作）
+6. **品質チェック**: `task check`で全チェックを実行
+7. **ドキュメント更新**: README.mdとこのCLAUDE.mdを更新
+
+**Claudeへの重要な指示**:
+- コード修正後は**必ず**`task fix`を実行してimportを整理すること
+- テスト実行は**必ず**`task test`を使用すること（`go test`は使用しない）
+- `go test`コマンドはCGO_ENABLED=0でビルドされるため、SQLiteテストが失敗する
+- `task test`はCGO_ENABLED=1で実行されるため、すべてのテストが正常に動作する
 
 ### エラーハンドリングパターン
 
@@ -215,33 +223,33 @@ cp .devcontainer/.env.example .devcontainer/.env
 
 ## Runtime制限機能
 
-Runtime結果の取得では、asset.type別に取得件数を制限できます。大量のworkloadデータを効率的に処理するための機能です。
+Runtime結果の取得では、**critical/high脆弱性でフィルタリング後**にasset.type別で取得件数を制限できます。効率的なデータ取得のための機能です。
 
-### デフォルト制限
+### デフォルト動作（v2仕様）
 ```bash
-# デフォルト設定（推奨）
+# デフォルト設定: critical/highが1以上のものを全件取得
 ./bin/sysdig-vuls -command runtime
 ./bin/sysdig-vuls -command runtime-cache -days 7 -cache runtime.db
 
-# デフォルト制限値：
-# - workload: 300件（大量データを制限）
-# - host: 無制限（通常数十件）
-# - container: 無制限（通常数十件）
+# 動作フロー:
+# 1. すべてのruntime結果を取得（API）
+# 2. critical/highが1以上のものをフィルタ
+# 3. asset.type別に制限を適用（デフォルトは全件=0）
 ```
 
 ### カスタム制限
 ```bash
-# 制限をカスタマイズ
+# フィルタリング後にworkloadのみ100件に制限
+./bin/sysdig-vuls -command runtime \
+  -runtime-workload-limit 100 \
+  -runtime-host-limit 0 \
+  -runtime-container-limit 0
+
+# すべてのタイプで制限適用
 ./bin/sysdig-vuls -command runtime \
   -runtime-workload-limit 100 \
   -runtime-host-limit 20 \
   -runtime-container-limit 10
-
-# 制限を無効化（0 = 無制限、内部的に10,000件まで）
-./bin/sysdig-vuls -command runtime \
-  -runtime-workload-limit 0 \
-  -runtime-host-limit 0 \
-  -runtime-container-limit 0
 
 # 特定タイプをスキップ（負の値）
 ./bin/sysdig-vuls -command runtime \
